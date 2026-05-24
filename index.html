@@ -735,9 +735,13 @@ Gere um JSON completo e jogável. O campo goal_x deve estar próximo de ${size -
       })
     });
 
-    const data = await response.json();
+    const rawText = await response.text();
+    if (!rawText || rawText.trim() === "") throw new Error("Worker retornou resposta vazia. Verifique se o Worker foi atualizado e o Deploy foi feito.");
+    
+    let data;
+    try { data = JSON.parse(rawText); } catch(e) { throw new Error("Resposta inválida do Worker: " + rawText.slice(0, 100)); }
 
-    if (data.error) throw new Error(data.error.message);
+    if (data.error) throw new Error(data.error.message || data.error);
 
     const rawText = data.content.map(b => b.type === 'text' ? b.text : '').join('');
 
