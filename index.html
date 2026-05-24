@@ -334,6 +334,20 @@
 </head>
 <body>
 
+<div id="passwordScreen" style="position:fixed;inset:0;background:#0d0d0f;display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:1.5rem;">
+  <div style="text-align:center;">
+    <div style="font-size:2.5rem;margin-bottom:0.5rem;">🎮</div>
+    <h2 style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:#f0f0f0;margin-bottom:0.25rem;">SMMWE AI Level Gen</h2>
+    <p style="color:#888;font-size:0.85rem;font-family:monospace;">Digite a senha para acessar</p>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:10px;width:280px;">
+    <input type="password" id="senhaInput" placeholder="Senha de acesso" onkeydown="if(event.key==='Enter')checkSenha()"
+      style="background:#1e1e24;border:1px solid #2a2a35;color:#f0f0f0;border-radius:6px;padding:10px 14px;font-family:monospace;font-size:0.9rem;outline:none;width:100%;text-align:center;" />
+    <button onclick="checkSenha()" style="background:#c8ff00;color:#000;border:none;border-radius:6px;padding:11px;font-family:'Syne',sans-serif;font-weight:800;font-size:0.95rem;cursor:pointer;">Entrar</button>
+    <p id="senhaErro" style="color:#ff4466;font-size:0.8rem;text-align:center;font-family:monospace;display:none;">Senha incorreta!</p>
+  </div>
+</div>
+
 <header>
   <div class="logo">
     <div class="logo-icon">🎮</div>
@@ -342,8 +356,7 @@
   <div style="display:flex;gap:8px;align-items:center;">
     <span class="badge">v2.0</span>
     <span class="badge" style="color:var(--accent);">IA Integrada</span>
-    <input type="text" id="workerUrl" placeholder="https://smmwe-proxy.SEU-USUARIO.workers.dev" 
-      style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:0.75rem;width:320px;outline:none;font-family:monospace;" />
+
   </div>
 </header>
 
@@ -709,15 +722,11 @@ Gere um JSON completo e jogável. O campo goal_x deve estar próximo de ${size -
   showAIResponse('🤖 Consultando IA para gerar a fase...');
 
   try {
-    const workerUrl = document.getElementById('workerUrl').value.trim();
-    if (!workerUrl) {
-      setStatus('error', 'cole a URL do worker no topo');
-      showAIResponse('❌ Cole a URL do seu Cloudflare Worker no campo no topo da página.');
-      btn.disabled = false; btn.textContent = '✦ Gerar Fase com IA'; return;
-    }
+    const workerUrl = "https://smmwe-proxy.hugo-augusto2024.workers.dev/";
+    const senha = sessionStorage.getItem('smmwe_senha') || '';
     const response = await fetch(workerUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Password": senha },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
         max_tokens: 4000,
@@ -768,6 +777,32 @@ Gere um JSON completo e jogável. O campo goal_x deve estar próximo de ${size -
 
 document.getElementById('jsonOutput').value = JSON.stringify(defaultLevel, null, 2);
 setStatus('ok', 'pronto');
+</script>
+
+<script>
+function checkSenha() {
+  const val = document.getElementById('senhaInput').value.trim();
+  if (!val) return;
+  sessionStorage.setItem('smmwe_senha', val);
+  fetch("https://smmwe-proxy.hugo-augusto2024.workers.dev/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Password": val },
+    body: JSON.stringify({ system: "ping", messages: [{ role: "user", content: "ping" }] })
+  }).then(r => {
+    if (r.status === 401) {
+      document.getElementById('senhaErro').style.display = 'block';
+      sessionStorage.removeItem('smmwe_senha');
+    } else {
+      document.getElementById('passwordScreen').style.display = 'none';
+    }
+  }).catch(() => {
+    document.getElementById('passwordScreen').style.display = 'none';
+  });
+}
+
+if (sessionStorage.getItem('smmwe_senha')) {
+  document.getElementById('passwordScreen').style.display = 'none';
+}
 </script>
 </body>
 </html>
