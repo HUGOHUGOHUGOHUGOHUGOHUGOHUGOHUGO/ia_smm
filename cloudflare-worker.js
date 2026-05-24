@@ -15,7 +15,7 @@ export default {
     }
 
     const senha = request.headers.get("X-Password");
-    if (!senha || senha !== env.SITE_PASSWORD) {
+    if (!senha || senha !== env.dumer123) {
       return new Response(JSON.stringify({ error: "Senha incorreta" }), {
         status: 401,
         headers: {
