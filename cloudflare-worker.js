@@ -5,13 +5,24 @@ export default {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Headers": "Content-Type, X-Password",
         },
       });
     }
 
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
+    }
+
+    const senha = request.headers.get("X-Password");
+    if (!senha || senha !== env.SITE_PASSWORD) {
+      return new Response(JSON.stringify({ error: "Senha incorreta" }), {
+        status: 401,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
     }
 
     const body = await request.json();
@@ -31,7 +42,7 @@ export default {
     };
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.AIzaSyChZ7h7USI0yuQCbygsH7-fErNhsdkj_7s}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -40,14 +51,9 @@ export default {
     );
 
     const data = await response.json();
-
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    const result = {
-      content: [{ type: "text", text }]
-    };
-
-    return new Response(JSON.stringify(result), {
+    return new Response(JSON.stringify({ content: [{ type: "text", text }] }), {
       headers: {
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": "*",
