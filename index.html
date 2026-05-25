@@ -2,701 +2,387 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>SMMWE — Gerador de Fases com IA</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SMMWE AI Level Gen</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap');
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: sans-serif; background: #0d0d0f; color: #f0f0f0; }
 
-  :root {
-    --bg: #0d0d0f;
-    --surface: #16161a;
-    --surface2: #1e1e24;
-    --border: #2a2a35;
-    --accent: #c8ff00;
-    --accent2: #ff6b35;
-    --text: #f0f0f0;
-    --muted: #888;
-    --danger: #ff4466;
-    --info: #00c8ff;
-  }
+#lockScreen {
+  position: fixed; inset: 0; background: #0d0d0f;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; z-index: 999;
+}
+#lockScreen h2 { font-size: 1.5rem; color: #c8ff00; }
+#lockScreen p { color: #888; font-size: 0.85rem; }
+#lockScreen input {
+  padding: 10px 16px; border-radius: 6px; border: 1px solid #444;
+  background: #1e1e24; color: #fff; font-size: 1rem; width: 260px; text-align: center;
+}
+#lockScreen button {
+  padding: 10px 32px; background: #c8ff00; color: #000;
+  border: none; border-radius: 6px; font-weight: bold; font-size: 1rem; cursor: pointer;
+}
+#lockError { color: #ff4466; font-size: 0.85rem; display: none; }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+#app { display: none; }
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Syne', sans-serif;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
+header {
+  background: #16161a; border-bottom: 1px solid #2a2a35;
+  padding: 14px 20px; display: flex; align-items: center; gap: 10px;
+}
+header h1 { font-size: 1.1rem; }
+header span { color: #c8ff00; }
 
-  header {
-    padding: 2rem 2.5rem 1.5rem;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 1rem;
-  }
+main { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 53px); }
 
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
+.panel {
+  background: #16161a; border-right: 1px solid #2a2a35;
+  padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  overflow-y: auto;
+}
 
-  .logo-icon {
-    width: 36px; height: 36px;
-    background: var(--accent);
-    border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 18px;
-  }
+label { font-size: 0.78rem; color: #888; display: block; margin-bottom: 3px; }
 
-  .logo h1 {
-    font-size: 1.2rem;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-  }
+input[type=text], input[type=number], select, textarea {
+  width: 100%; background: #1e1e24; border: 1px solid #2a2a35;
+  color: #f0f0f0; border-radius: 5px; padding: 7px 10px;
+  font-size: 0.85rem; font-family: sans-serif; outline: none;
+}
+textarea { resize: vertical; height: 80px; }
 
-  .logo span { color: var(--accent); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
-  .badge {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.65rem;
-    padding: 3px 8px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--muted);
-    letter-spacing: 0.05em;
-  }
+.btn-gen {
+  width: 100%; padding: 11px; background: #c8ff00; color: #000;
+  border: none; border-radius: 6px; font-weight: bold; font-size: 0.95rem;
+  cursor: pointer; margin-top: 4px;
+}
+.btn-gen:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  main {
-    display: grid;
-    grid-template-columns: 380px 1fr;
-    flex: 1;
-  }
+.btn-load {
+  width: 100%; padding: 9px; background: #1e1e24; color: #f0f0f0;
+  border: 1px solid #2a2a35; border-radius: 6px; cursor: pointer; font-size: 0.85rem;
+}
 
-  .panel {
-    padding: 1.5rem;
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: 1.2rem;
-    overflow-y: auto;
-  }
+.editor-side { display: flex; flex-direction: column; }
 
-  .editor-panel {
-    display: flex;
-    flex-direction: column;
-  }
+.editor-top {
+  background: #16161a; border-bottom: 1px solid #2a2a35;
+  padding: 10px 16px; display: flex; gap: 8px; align-items: center;
+}
+.editor-top span { color: #888; font-size: 0.78rem; flex: 1; font-family: monospace; }
 
-  .section-title {
-    font-size: 0.65rem;
-    font-family: 'Space Mono', monospace;
-    letter-spacing: 0.12em;
-    color: var(--muted);
-    text-transform: uppercase;
-    margin-bottom: 0.6rem;
-  }
+.btn-dl {
+  padding: 7px 16px; background: #00c8ff; color: #000;
+  border: none; border-radius: 5px; font-weight: bold; cursor: pointer; font-size: 0.82rem;
+}
+.btn-copy {
+  padding: 7px 14px; background: #1e1e24; color: #f0f0f0;
+  border: 1px solid #2a2a35; border-radius: 5px; cursor: pointer; font-size: 0.82rem;
+}
 
-  label {
-    font-size: 0.85rem;
-    color: var(--muted);
-    display: block;
-    margin-bottom: 4px;
-  }
+#jsonOut {
+  flex: 1; background: #0d0d0f; border: none; color: #7affb2;
+  font-family: monospace; font-size: 0.78rem; padding: 16px;
+  resize: none; outline: none; line-height: 1.6;
+}
 
-  input[type=text], input[type=number], select, textarea {
-    width: 100%;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 8px 10px;
-    font-family: 'Syne', sans-serif;
-    font-size: 0.875rem;
-    outline: none;
-    transition: border-color 0.15s;
-  }
+.statusbar {
+  background: #16161a; border-top: 1px solid #2a2a35;
+  padding: 5px 16px; font-family: monospace; font-size: 0.7rem; color: #888;
+  display: flex; align-items: center; gap: 8px;
+}
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #888; flex-shrink: 0; }
+.dot.ok { background: #c8ff00; }
+.dot.loading { background: #ff9900; animation: blink 0.7s infinite; }
+.dot.error { background: #ff4466; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
-  input:focus, select:focus, textarea:focus {
-    border-color: var(--accent);
-  }
+#msgBox {
+  margin-top: 6px; padding: 10px; background: #1e1e24; border-radius: 5px;
+  font-size: 0.8rem; color: #888; font-family: monospace; display: none;
+  border: 1px solid #2a2a35;
+}
 
-  select option { background: var(--surface2); }
+section-title {
+  font-size: 0.65rem; color: #888; text-transform: uppercase;
+  letter-spacing: 0.1em; font-family: monospace;
+}
 
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+hr { border: none; border-top: 1px solid #2a2a35; }
 
-  .prompt-box {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .prompt-box textarea {
-    height: 100px;
-    resize: vertical;
-    border: none;
-    background: transparent;
-    padding: 0;
-    font-size: 0.875rem;
-  }
-
-  .prompt-actions {
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  button {
-    font-family: 'Syne', sans-serif;
-    font-weight: 700;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: opacity 0.15s, transform 0.1s;
-    font-size: 0.85rem;
-    padding: 9px 18px;
-  }
-
-  button:hover { opacity: 0.85; }
-  button:active { transform: scale(0.97); }
-  button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-
-  .btn-generate {
-    background: var(--accent);
-    color: #000;
-    padding: 10px 22px;
-    font-size: 0.9rem;
-    width: 100%;
-  }
-
-  .btn-download {
-    background: var(--info);
-    color: #000;
-  }
-
-  .btn-load {
-    background: var(--surface2);
-    color: var(--text);
-    border: 1px solid var(--border);
-  }
-
-  .btn-copy {
-    background: var(--surface2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    font-size: 0.78rem;
-    padding: 6px 12px;
-  }
-
-  .btn-danger {
-    background: transparent;
-    color: var(--danger);
-    border: 1px solid var(--danger);
-    font-size: 0.78rem;
-    padding: 6px 12px;
-  }
-
-  .editor-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-  }
-
-  .editor-title {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.75rem;
-    color: var(--muted);
-  }
-
-  .editor-actions { display: flex; gap: 8px; }
-
-  #jsonOutput {
-    flex: 1;
-    background: var(--surface);
-    border: none;
-    color: #7affb2;
-    font-family: 'Space Mono', monospace;
-    font-size: 0.78rem;
-    padding: 16px;
-    resize: none;
-    outline: none;
-    line-height: 1.6;
-    min-height: 500px;
-  }
-
-  .status-bar {
-    padding: 6px 16px;
-    background: var(--surface);
-    border-top: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-family: 'Space Mono', monospace;
-    font-size: 0.7rem;
-    color: var(--muted);
-  }
-
-  .status-dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--muted);
-  }
-
-  .status-dot.ok { background: var(--accent); }
-  .status-dot.loading { background: var(--accent2); animation: pulse 0.8s infinite; }
-  .status-dot.error { background: var(--danger); }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-  }
-
-  .ai-response-box {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px;
-    font-size: 0.82rem;
-    color: var(--muted);
-    line-height: 1.6;
-    min-height: 60px;
-    font-family: 'Space Mono', monospace;
-    display: none;
-  }
-
-  .ai-response-box.visible { display: block; }
-
-  .toggle-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .toggle-label { font-size: 0.875rem; }
-
-  .toggle {
-    width: 36px; height: 20px;
-    background: var(--border);
-    border-radius: 99px;
-    position: relative;
-    cursor: pointer;
-    transition: background 0.2s;
-    flex-shrink: 0;
-  }
-
-  .toggle.on { background: var(--accent); }
-
-  .toggle::after {
-    content: '';
-    width: 14px; height: 14px;
-    background: #fff;
-    border-radius: 50%;
-    position: absolute;
-    top: 3px; left: 3px;
-    transition: left 0.2s;
-  }
-
-  .toggle.on::after { left: 19px; }
-
-  .divider {
-    border: none;
-    border-top: 1px solid var(--border);
-  }
-
-  input[type=file] { display: none; }
-
-  .tip {
-    font-size: 0.75rem;
-    color: var(--muted);
-    line-height: 1.5;
-  }
-
-  .tip strong { color: var(--accent2); }
-
-  @media (max-width: 800px) {
-    main { grid-template-columns: 1fr; }
-    .panel { border-right: none; border-bottom: 1px solid var(--border); }
-  }
+input[type=file] { display: none; }
 </style>
 </head>
 <body>
 
-<header>
-  <div class="logo">
-    <div class="logo-icon">🎮</div>
+<!-- TELA DE SENHA -->
+<div id="lockScreen">
+  <div style="font-size:2.5rem">🎮</div>
+  <h2>SMMWE AI Level Gen</h2>
+  <p>Digite a senha para acessar</p>
+  <input type="password" id="senhaInput" placeholder="Senha" onkeydown="if(event.key==='Enter')entrar()">
+  <button onclick="entrar()">Entrar</button>
+  <p id="lockError">Senha incorreta, tente novamente.</p>
+</div>
+
+<!-- APP PRINCIPAL -->
+<div id="app">
+  <header>
+    <span style="font-size:1.4rem">🎮</span>
     <h1>SMMWE <span>AI</span> Level Gen</h1>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center;">
-    <span class="badge">v2.0</span>
-    <span class="badge" style="color:var(--accent);">IA Integrada</span>
+  </header>
 
-  </div>
-</header>
-
-<main>
-  <!-- LEFT PANEL -->
-  <div class="panel">
-
-    <div>
-      <p class="section-title">Descreva a fase</p>
-      <div class="prompt-box">
-        <textarea id="promptInput" placeholder="Ex: uma fase com muitos canos no estilo Mario 3, dificuldade média, tema neve, com chefe no final..."></textarea>
+  <main>
+    <div class="panel">
+      <div>
+        <label>Descreva a fase</label>
+        <textarea id="prompt" placeholder="Ex: fase com canos, inimigos voadores, tema castelo..."></textarea>
       </div>
-    </div>
 
-    <div>
-      <p class="section-title">Configurações da fase</p>
-      <div style="display:flex;flex-direction:column;gap:10px;">
+      <hr>
 
-        <div>
-          <label>Nome da fase</label>
-          <input type="text" id="levelName" value="Minha Fase" />
-        </div>
-
-        <div class="grid2">
-          <div>
-            <label>Gamestyle</label>
-            <select id="gamestyle">
-              <option value="1">SMB1</option>
-              <option value="2">SMB3</option>
-              <option value="3" selected>SMW</option>
-              <option value="4">NSMBU</option>
-              <option value="5">SM3DW</option>
-            </select>
-          </div>
-          <div>
-            <label>Tema</label>
-            <select id="gametheme">
-              <option value="overworld">Overworld</option>
-              <option value="underground">Underground</option>
-              <option value="castle">Castle</option>
-              <option value="airship">Airship</option>
-              <option value="underwater">Underwater</option>
-              <option value="ghost_house">Ghost House</option>
-              <option value="snow">Snow</option>
-              <option value="fall" selected>Fall</option>
-              <option value="desert">Desert</option>
-              <option value="forest">Forest</option>
-              <option value="sky">Sky</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="grid2">
-          <div>
-            <label>Timer (seg)</label>
-            <input type="number" id="timer" value="300" min="10" max="999" />
-          </div>
-          <div>
-            <label>Tamanho</label>
-            <input type="number" id="levelSize" value="9216" step="256" min="1024" />
-          </div>
-        </div>
-
-        <div class="grid2">
-          <div>
-            <label>Start X</label>
-            <input type="number" id="startX" value="224" />
-          </div>
-          <div>
-            <label>Start Y</label>
-            <input type="number" id="startY" value="400" />
-          </div>
-        </div>
-
-        <div class="toggle-row">
-          <span class="toggle-label">Modo Noite</span>
-          <div class="toggle" id="toggleNight" onclick="this.classList.toggle('on')"></div>
-        </div>
-
-        <div class="toggle-row">
-          <span class="toggle-label">Autoscroll</span>
-          <div class="toggle" id="toggleAutoscroll" onclick="this.classList.toggle('on')"></div>
-        </div>
-
+      <div>
+        <label>Nome da fase</label>
+        <input type="text" id="levelName" value="Minha Fase">
       </div>
-    </div>
-
-    <hr class="divider">
-
-    <div>
-      <p class="section-title">Geração IA</p>
-      <div style="display:flex;flex-direction:column;gap:10px;">
-
+      <div class="row2">
         <div>
-          <label>Dificuldade</label>
-          <select id="difficulty">
-            <option value="muito fácil">Muito Fácil</option>
-            <option value="fácil">Fácil</option>
-            <option value="médio" selected>Médio</option>
-            <option value="difícil">Difícil</option>
-            <option value="extremo">Extremo</option>
+          <label>Gamestyle</label>
+          <select id="gamestyle">
+            <option value="1">SMB1</option>
+            <option value="2">SMB3</option>
+            <option value="3" selected>SMW</option>
+            <option value="4">NSMBU</option>
+            <option value="5">SM3DW</option>
           </select>
         </div>
-
         <div>
-          <label>Densidade de objetos</label>
+          <label>Tema</label>
+          <select id="gametheme">
+            <option value="overworld">Overworld</option>
+            <option value="underground">Underground</option>
+            <option value="castle">Castle</option>
+            <option value="airship">Airship</option>
+            <option value="underwater">Underwater</option>
+            <option value="ghost_house">Ghost House</option>
+            <option value="snow">Snow</option>
+            <option value="fall">Fall</option>
+            <option value="desert">Desert</option>
+            <option value="forest">Forest</option>
+            <option value="sky">Sky</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div><label>Timer (seg)</label><input type="number" id="timer" value="300"></div>
+        <div><label>Tamanho</label><input type="number" id="size" value="9216" step="256"></div>
+      </div>
+      <div class="row2">
+        <div><label>Dificuldade</label>
+          <select id="diff">
+            <option>Muito Fácil</option>
+            <option selected>Médio</option>
+            <option>Difícil</option>
+            <option>Extremo</option>
+          </select>
+        </div>
+        <div><label>Densidade</label>
           <select id="density">
-            <option value="esparsa">Esparsa</option>
-            <option value="média" selected>Média</option>
-            <option value="densa">Densa</option>
+            <option>Esparsa</option>
+            <option selected>Média</option>
+            <option>Densa</option>
           </select>
         </div>
+      </div>
 
-        <div class="toggle-row">
-          <span class="toggle-label">Gerar Sublevel</span>
-          <div class="toggle on" id="toggleSublevel" onclick="this.classList.toggle('on')"></div>
-        </div>
+      <button class="btn-gen" id="btnGen" onclick="gerarFase()">✦ Gerar Fase com IA</button>
 
-        <button class="btn-generate" id="btnGenerate" onclick="generateLevel()">✦ Gerar Fase com IA</button>
+      <div id="msgBox"></div>
+
+      <hr>
+
+      <input type="file" id="fileIn" accept=".swe" onchange="loadSWE(event)">
+      <button class="btn-load" onclick="document.getElementById('fileIn').click()">📂 Abrir arquivo .swe</button>
+    </div>
+
+    <div class="editor-side">
+      <div class="editor-top">
+        <span>JSON da fase — editável</span>
+        <button class="btn-copy" onclick="copiar()">Copiar</button>
+        <button class="btn-dl" onclick="baixar()">⬇ Baixar .swe</button>
+      </div>
+      <textarea id="jsonOut" spellcheck="false"></textarea>
+      <div class="statusbar">
+        <div class="dot ok" id="dot"></div>
+        <span id="statusMsg">pronto</span>
       </div>
     </div>
-
-    <hr class="divider">
-
-    <div>
-      <p class="section-title">Carregar existente</p>
-      <input type="file" id="fileInput" accept=".swe" onchange="loadSWE(event)">
-      <button class="btn-load" onclick="document.getElementById('fileInput').click()" style="width:100%">📂 Abrir arquivo .swe</button>
-    </div>
-
-    <div id="aiResponseBox" class="ai-response-box"></div>
-
-    <p class="tip"><strong>Dica:</strong> quanto mais detalhado for o prompt, melhor a fase gerada. Mencione obstáculos, inimigos específicos, seções, etc.</p>
-
-  </div>
-
-  <!-- RIGHT PANEL -->
-  <div class="editor-panel">
-    <div class="editor-header">
-      <span class="editor-title">JSON da fase — editável</span>
-      <div class="editor-actions">
-        <button class="btn-copy" onclick="copyJSON()">Copiar</button>
-        <button class="btn-danger" onclick="resetJSON()">Limpar</button>
-        <button class="btn-download" onclick="exportSWE()">⬇ Baixar .swe</button>
-      </div>
-    </div>
-
-    <textarea id="jsonOutput" spellcheck="false"></textarea>
-
-    <div class="status-bar">
-      <div class="status-dot ok" id="statusDot"></div>
-      <span id="statusText">pronto</span>
-    </div>
-  </div>
-</main>
+  </main>
+</div>
 
 <script>
-const KEY = "2559F35097-2021";
+const WORKER = "https://smmwe-proxy.hugo-augusto2024.workers.dev/";
+const KEY_SWE = "2559F35097-2021";
 
-const defaultLevel = {
-  "S0": {
-    "S8": [], "S6": [], "S2": [],
-    "S4": [],
-    "S3": [], "S7": [],
-    "S1": [{
-      "goal_y": 400, "nightmode": 0, "label_1": 0, "autoscroll": 0, "t_conditions": 0,
-      "wl": 416, "mtrs": 0, "wl_speed": 0.2, "c_conditions": 0, "conditions": 0,
-      "t": 1, "start_y": 400, "date": "31/03/2026", "goal_x": 9056, "size": 9216,
-      "gamestyle": 3, "ds_s": 0, "desc": "level",
-      "label_2": 7, "user": "user", "time": "14:00", "gametheme": "fall",
-      "wl_limit": 416, "o_conditions": 0, "timer": 300
-    }],
-    "S5": []
+const defaultJSON = {
+  "S0":{
+    "S8":[],"S6":[],"S2":[],"S4":[],"S3":[],"S7":[],
+    "S1":[{"goal_y":400,"nightmode":0,"label_1":0,"autoscroll":0,"t_conditions":0,
+      "wl":416,"mtrs":0,"wl_speed":0.2,"c_conditions":0,"conditions":0,
+      "t":1,"start_y":400,"date":"31/03/2026","goal_x":9056,"size":9216,
+      "gamestyle":3,"ds_s":0,"desc":"level","label_2":7,"user":"user",
+      "time":"14:00","gametheme":"fall","wl_limit":416,"o_conditions":0,"timer":300}],
+    "S5":[]
   },
-  "SB1": { "S1": [] }
+  "SB1":{"S1":[]}
 };
 
+document.getElementById('jsonOut').value = JSON.stringify(defaultJSON, null, 2);
+
 function setStatus(state, msg) {
-  const dot = document.getElementById('statusDot');
-  dot.className = 'status-dot ' + state;
-  document.getElementById('statusText').textContent = msg;
+  document.getElementById('dot').className = 'dot ' + state;
+  document.getElementById('statusMsg').textContent = msg;
 }
 
-function showAIResponse(msg) {
-  const box = document.getElementById('aiResponseBox');
-  box.textContent = msg;
-  box.classList.add('visible');
+function showMsg(msg) {
+  const b = document.getElementById('msgBox');
+  b.textContent = msg;
+  b.style.display = 'block';
 }
 
-function hideAIResponse() {
-  document.getElementById('aiResponseBox').classList.remove('visible');
+// SENHA
+function entrar() {
+  const senha = document.getElementById('senhaInput').value.trim();
+  if (!senha) return;
+  
+  if (senha === "dumer123") {
+    sessionStorage.setItem('senha', senha);
+    document.getElementById('lockScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+  } else {
+    document.getElementById('lockError').style.display = 'block';
+  }
 }
 
-function utf8_to_b64(str) {
-  const bytes = new TextEncoder().encode(str);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
+if (sessionStorage.getItem('senha')) {
+  document.getElementById('lockScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
 }
 
-function b64_to_utf8(str) {
-  const cleaned = str.replace(/[^A-Za-z0-9+/=]/g, "");
-  const binary = atob(cleaned);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
-}
+// GERAR FASE
+async function gerarFase() {
+  const btn = document.getElementById('btnGen');
+  btn.disabled = true;
+  btn.textContent = '⏳ Gerando...';
+  setStatus('loading', 'gerando fase com IA...');
+  showMsg('🤖 Aguarde, a IA está criando a fase...');
 
-function exportSWE() {
-  const raw = document.getElementById('jsonOutput').value;
+  const sistema = `Você é um gerador de fases para SMMWE. Retorne APENAS JSON puro sem markdown.
+Estrutura obrigatória:
+{"S0":{"S8":[],"S6":[],"S2":[[x,y,1,largura,1]],"S4":[[x,y,5,1,1,1]],"S3":[[x,y,1]],"S7":[],"S1":[{metadata}],"S5":[]},"SB1":{"S1":[]}}
+S2=tiles sólidos, S4=blocos, S3=inimigos, S5=objetos especiais.
+Tiles: [x,y,tipo,w,h]. Inimigos: [x,y,tipo]. Chão y=416. Tiles de 32px.
+Inimigos: 1=Goomba, 2=Koopa, 3=PiranhaPlant, 7=HammerBros, 8=Boo.
+S1[0] deve ter: goal_y,nightmode,label_1,autoscroll,t_conditions,wl,mtrs,wl_speed,c_conditions,conditions,t,start_y,date,goal_x,size,gamestyle,ds_s,desc,label_2,user,time,gametheme,wl_limit,o_conditions,timer.
+Gere fase jogável com chão, plataformas, inimigos e goal.`;
+
+  const msg = `Gere fase: nome="${document.getElementById('levelName').value}", gamestyle=${document.getElementById('gamestyle').value}, tema=${document.getElementById('gametheme').value}, timer=${document.getElementById('timer').value}, size=${document.getElementById('size').value}, dificuldade=${document.getElementById('diff').value}, densidade=${document.getElementById('density').value}. Descrição: ${document.getElementById('prompt').value || 'fase divertida'}. goal_x deve ser próximo de ${parseInt(document.getElementById('size').value)-160}.`;
+
   try {
-    const minified = JSON.stringify(JSON.parse(raw));
-    const b64 = utf8_to_b64(minified);
-    const hmac = CryptoJS.HmacSHA1(b64, KEY).toString(CryptoJS.enc.Hex);
-    const final = b64 + hmac;
-    const blob = new Blob([final], { type: "text/plain" });
-    const a = document.createElement("a");
+    const res = await fetch(WORKER, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Password": sessionStorage.getItem('senha') || ''
+      },
+      body: JSON.stringify({ system: sistema, messages: [{ role: "user", content: msg }] })
+    });
+
+    const txt = await res.text();
+    if (!txt) throw new Error("Resposta vazia do servidor");
+
+    let data;
+    try { data = JSON.parse(txt); } catch(e) { throw new Error("Resposta inválida: " + txt.slice(0,100)); }
+
+    if (data.error) throw new Error(data.error);
+
+    const aiText = data?.content?.[0]?.text || "";
+    if (!aiText) throw new Error("IA não retornou texto");
+
+    const cleaned = aiText.replace(/```json\s*/gi,'').replace(/```/g,'').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("IA não gerou JSON válido. Tente novamente.");
+
+    const parsed = JSON.parse(match[0]);
+    if (!parsed.S0 || !parsed.S0.S1) throw new Error("Estrutura inválida. Tente novamente.");
+
+    document.getElementById('jsonOut').value = JSON.stringify(parsed, null, 2);
+    setStatus('ok', 'fase gerada!');
+    showMsg('✅ Fase gerada! Edite o JSON se quiser, depois clique em Baixar .swe');
+  } catch(e) {
+    setStatus('error', 'erro');
+    showMsg('❌ ' + e.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '✦ Gerar Fase com IA';
+}
+
+// SWE
+function utf8b64(str) {
+  const b = new TextEncoder().encode(str);
+  let s = '';
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s);
+}
+function b64utf8(str) {
+  const c = str.replace(/[^A-Za-z0-9+/=]/g,'');
+  const b = atob(c);
+  const u = new Uint8Array(b.length);
+  for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+  return new TextDecoder().decode(u);
+}
+
+function baixar() {
+  try {
+    const raw = document.getElementById('jsonOut').value;
+    const min = JSON.stringify(JSON.parse(raw));
+    const b64 = utf8b64(min);
+    const hmac = CryptoJS.HmacSHA1(b64, KEY_SWE).toString(CryptoJS.enc.Hex);
+    const blob = new Blob([b64+hmac], {type:'text/plain'});
+    const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = (document.getElementById('levelName').value || 'level').replace(/\s/g,'_') + ".swe";
+    a.download = (document.getElementById('levelName').value||'level').replace(/\s/g,'_')+'.swe';
     a.click();
     setStatus('ok', 'arquivo baixado!');
-  } catch(e) {
-    alert("Erro no JSON: " + e.message);
-    setStatus('error', 'json inválido');
-  }
+  } catch(e) { alert('Erro no JSON: '+e.message); }
 }
 
-function loadSWE(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = function(e) {
+function copiar() {
+  navigator.clipboard.writeText(document.getElementById('jsonOut').value);
+  setStatus('ok', 'copiado!');
+  setTimeout(()=>setStatus('ok','pronto'),2000);
+}
+
+function loadSWE(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = function(ev) {
     try {
-      let content = e.target.result.replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim();
-      if (content.length <= 40) throw new Error("Arquivo inválido");
-      const b64Data = content.slice(0, -40);
-      const json = b64_to_utf8(b64Data);
-      const parsed = JSON.parse(json);
-      document.getElementById('jsonOutput').value = JSON.stringify(parsed, null, 2);
-      setStatus('ok', 'fase carregada: ' + file.name);
-    } catch(err) {
-      alert("Erro ao carregar .swe: " + err.message);
-      setStatus('error', 'erro ao carregar');
-    }
+      let c = ev.target.result.replace(/[\x00-\x1F\x7F-\x9F]/g,'').trim();
+      if (c.length<=40) throw new Error('Arquivo inválido');
+      const parsed = JSON.parse(b64utf8(c.slice(0,-40)));
+      document.getElementById('jsonOut').value = JSON.stringify(parsed, null, 2);
+      setStatus('ok','fase carregada!');
+    } catch(err) { alert('Erro: '+err.message); }
   };
-  reader.readAsText(file);
-  event.target.value = '';
+  r.readAsText(f);
+  e.target.value='';
 }
-
-function copyJSON() {
-  navigator.clipboard.writeText(document.getElementById('jsonOutput').value);
-  setStatus('ok', 'json copiado!');
-  setTimeout(() => setStatus('ok', 'pronto'), 2000);
-}
-
-function resetJSON() {
-  document.getElementById('jsonOutput').value = JSON.stringify(defaultLevel, null, 2);
-  setStatus('ok', 'json resetado');
-}
-
-function buildSystemPrompt() {
-  return `Você é um gerador especialista de fases para o jogo SMMWE (Super Mario Maker World Engine).
-
-Você deve retornar APENAS um objeto JSON válido representando uma fase completa no formato SMMWE. NENHUM texto antes ou depois — apenas o JSON puro.
-
-Estrutura obrigatória do JSON:
-{
-  "S0": {
-    "S8": [...],  // tiles do fundo (decoração)
-    "S6": [...],  // water tiles / pipes especiais
-    "S2": [...],  // tiles sólidos do chão e plataformas
-    "S4": [...],  // tiles de blocos (? blocos, tijolos, etc)
-    "S3": [...],  // inimigos
-    "S7": [...],  // itens e power-ups
-    "S1": [{...}], // dados gerais da fase (sempre array com 1 objeto)
-    "S5": [...]   // objetos especiais (portas, canos, etc)
-  },
-  "SB1": {
-    "S1": [...]   // sublevel (opcional, pode ser array vazio)
-  }
-}
-
-Cada tile/objeto é um array com esta estrutura:
-[x, y, tipo, largura, altura, extras...]
-onde x e y são posições em pixels, tipo é o ID do objeto.
-
-IDs de tiles comuns:
-- Chão sólido: tipo 1 (width e height em tiles de 32px)
-- Tijolo: tipo 4
-- Bloco ?: tipo 5 (com item: [x, y, 5, 1, 1, item_id])
-- Item IDs: 1=cogumelo, 2=fire flower, 3=estrela, 4=1up
-- Canos: tipo 15 (pipe) - [x, y, 15, 2, altura_em_tiles]
-- Moedas: tipo 14 - [x, y, 14]
-- Goal (bandeira): tipo 6 - [x, y, 6]
-
-IDs de inimigos (campo S3):
-- Goomba: 1 - [x, y, 1]
-- Koopa: 2 - [x, y, 2]
-- Piranha Plant: 3 - [x, y, 3]
-- Bob-omb: 4 - [x, y, 4]
-- Thwomp: 5 - [x, y, 5]
-- Bullet Bill: 6 - [x, y, 6]
-- Hammer Bros: 7 - [x, y, 7]
-- Boo: 8 - [x, y, 8]
-- Chain Chomp: 9 - [x, y, 9]
-- Lakitu: 10 - [x, y, 10]
-
-S1[0] deve conter:
-{
-  "goal_y": 400, "nightmode": 0, "label_1": 0, "autoscroll": 0, "t_conditions": 0,
-  "wl": 416, "mtrs": 0, "wl_speed": 0.2, "c_conditions": 0, "conditions": 0,
-  "t": 1, "start_x": 224, "start_y": 400, "date": "31/03/2026",
-  "goal_x": [posição X da bandeira],
-  "size": [tamanho total da fase em pixels],
-  "gamestyle": [1-5], "ds_s": 0, "desc": "[nome da fase]",
-  "label_2": 7, "user": "user", "time": "14:00", "gametheme": "[tema]",
-  "wl_limit": 416, "o_conditions": 0, "timer": [tempo]
-}
-
-REGRAS IMPORTANTES:
-- O chão base deve cobrir o comprimento da fase (tile tipo 1, y=416, width conforme tamanho)
-- Coloque a bandeira (goal, tipo 6) perto do final da fase
-- Distribua obstáculos e inimigos de forma crescente (mais fácil no início, mais difícil no fim)
-- Use coordenadas Y adequadas: 416 é o chão, valores menores ficam mais acima
-- Tiles de 32px de largura/altura
-- Gere uma fase jogável e coerente
-- Retorne SOMENTE o JSON, sem markdown, sem explicação`;
-}
-
-async function generateLevel() {
-  const prompt = document.getElementById('promptInput').value.trim();
-  const levelName = document.getElementById('levelName').value || 'Minha Fase';
-  const gamestyle = parseInt(document.getElementById('gamestyle').value);
-  const gametheme = document.getElementById('gametheme').value;
-  const timer = parseInt(document.getElementById('timer').value) || 300;
-  const size = parseInt(document.getElementById('levelSize').value) || 9216;
-  const startX = parseInt(document.getElementById('startX').value) || 224;
-  const startY = parseInt(document.getElementById('startY').value) || 400;
-  const nightmode = document.getElementById('toggleNight').classList.contains('on') ? 1 : 0;
-  const autoscroll = document.getElementById('toggleAutoscroll').classList.contains('on') ? 1 : 0;
-  const difficulty = document.getElementById('difficulty').value;
-  const density = document.getElementById('density').value;
-
-  const userPrompt = `Gere uma fase SMMWE com as seguintes características:
-- Nome: ${levelName}
-- Gamestyle: ${gamestyle} (1=SMB1, 2=SMB3, 3=SMW, 4=NSMBU, 5=SM3DW)
-- Tema: ${gametheme}
-- Timer: ${timer} segundos
-- Tamanho da fase: ${size} pixels
-- Start X: ${startX}, Start Y: ${startY}
-- Modo noite: ${nightmode}
-- Autoscroll: ${autoscroll}
-- Dificuldade: ${difficulty}
-- Densidade de objetos: ${density}
-${prompt ? `- Descrição extra do jogador: ${prompt}` : ''}
-
-Gere um JSON completo e jogável. O campo goal_x deve estar próximo de ${size - 160}. Coloque pelo menos 15-25 tiles de chão
+</script>
+</body>
+</html>
