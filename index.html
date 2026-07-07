@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>SMMWE OpenWE — Editor de Fases IA v4</title>
+<title>SMMWE OpenWE — Editor de Fases IA v1.0</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&display=swap');
@@ -96,12 +96,19 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
 .map-row select{flex:1;margin-bottom:0;font-size:9px;padding:2px 4px;}
 .map-row .mst{font-size:10px;width:16px;text-align:center;}
 #modalFooter{padding:8px 14px;background:var(--blue);display:flex;gap:6px;justify-content:flex-end;}
+
+#groqModalOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;}
+#groqModalOverlay.open{display:flex;}
+#groqModalBox{background:var(--panel);border:1px solid var(--accent3);border-radius:6px;width:420px;max-width:92vw;max-height:82vh;display:flex;flex-direction:column;overflow:hidden;}
+#groqModalBox h2{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--accent3);padding:10px 14px;background:var(--blue);letter-spacing:1px;}
+#groqModalBody{flex:1;overflow-y:auto;padding:12px 14px;}
+#groqModalFooter{padding:8px 14px;background:var(--blue);display:flex;gap:6px;align-items:center;}
 </style>
 </head>
 <body>
 
 <div id="header">
-  <h1>🍄 SMMWE <span>OpenWE</span><span class="ver">v4.0</span></h1>
+  <h1>🍄 SMMWE <span>OpenWE</span><span class="ver">v1.0</span></h1>
   <div style="flex:1"></div>
   <div style="font-size:8px;color:var(--dim)">Editor de Fases IA · PC Build · 811 objetos</div>
 </div>
@@ -177,15 +184,13 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
 
     <div class="s-title">🧠 IA Real (Groq)</div>
     <div class="s-body">
-      <label>URL do Worker (Cloudflare)</label>
-      <input type="text" id="groqWorkerUrl" placeholder="https://seu-worker.workers.dev">
-      <label>Chave da API Groq</label>
-      <input type="text" id="groqApiKey" placeholder="gsk_...">
       <label>Instruções extras (opcional)</label>
       <input type="text" id="groqPrompt" placeholder="Ex: fase temática de deserto com muitos canos">
-      <button class="btn green" id="btnGerarGroq" onclick="gerarComGroq()">🧠 Gerar com Groq</button>
+      <div class="btn-row">
+        <button class="btn green" id="btnGerarGroq" onclick="gerarComGroq()">🧠 Gerar com Groq</button>
+        <button class="btn" style="flex:0 0 34px;" onclick="abrirModalGroq()" title="Configurar API">⚙️</button>
+      </div>
       <span class="badge" id="groqStatus" style="display:block;margin-top:4px;text-align:center;">⭘ Groq não configurado</span>
-      <div style="font-size:8px;color:var(--dim);margin-top:5px;line-height:1.4;">🔒 A chave fica salva só neste navegador (localStorage) e é enviada ao seu Worker a cada geração. Não compartilhe o link do site com a chave preenchida.</div>
     </div>
 
     <div class="s-title">🖊️ Pincel</div>
@@ -214,7 +219,7 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
   <div id="main">
     <div id="canvas-area"><canvas id="mapCanvas"></canvas></div>
     <div id="logBox">
-      <p class="ok">[OK] SMMWE OpenWE v4.0 — 811 objetos carregados.</p>
+      <p class="ok">[OK] SMMWE OpenWE v1.0 — 811 objetos carregados.</p>
       <p>[INFO] Ctrl+Z desfazer | Ctrl+Y refazer | Ctrl+S exportar | 1-9 tiles | E borracha</p>
     </div>
     <div id="bottom-bar">
@@ -222,7 +227,7 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
       <span class="badge" id="tileCount">Tiles: 0</span>
       <span class="badge err" id="templateStatus">❌ Sem template</span>
       <span class="badge" id="historicoStatus">Hist: 0/50</span>
-      <span style="margin-left:auto;font-size:8px;color:#333">SMMWE OpenWE v4 · 2025</span>
+      <span style="margin-left:auto;font-size:8px;color:#333">SMMWE OpenWE v1.0 · 2025</span>
     </div>
   </div>
 </div>
@@ -243,6 +248,32 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
     </div>
   </div>
 </div>
+
+<!-- MODAL CONFIG GROQ -->
+<div id="groqModalOverlay" onclick="if(event.target===this)fecharModalGroq()">
+  <div id="groqModalBox">
+    <h2>🧠 Configurar IA (Groq)</h2>
+    <div id="groqModalBody">
+      <p style="font-size:9px;color:var(--dim);margin-bottom:10px;line-height:1.5;">
+        Cole aqui a URL do seu Worker Cloudflare e (opcionalmente) sua chave da API Groq.
+        Esses dados ficam salvos apenas neste navegador (localStorage) e são enviados ao
+        seu Worker a cada geração. Não compartilhe o link do site com esses campos preenchidos.
+      </p>
+      <label>URL do Worker (Cloudflare)</label>
+      <input type="text" id="groqWorkerUrl" placeholder="https://seu-worker.workers.dev">
+      <label>Chave da API Groq <span style="color:var(--dim)">(opcional se já configurada no Worker)</span></label>
+      <input type="text" id="groqApiKey" placeholder="gsk_...">
+      <div id="groqTestResult" style="font-size:9px;margin-top:6px;min-height:14px;"></div>
+    </div>
+    <div id="groqModalFooter">
+      <button class="btn" onclick="testarConexaoGroq()">🔌 Testar Conexão</button>
+      <div style="flex:1"></div>
+      <button class="btn" onclick="fecharModalGroq()">Cancelar</button>
+      <button class="btn green" onclick="salvarConfigGroq()">✅ Salvar</button>
+    </div>
+  </div>
+</div>
+
 
 <script>
 // ============================================================
@@ -727,13 +758,54 @@ function groqStatus(msg, tipo){
   el.textContent = msg;
 }
 
-function salvarWorkerUrl(){
-  const url = document.getElementById("groqWorkerUrl").value.trim();
-  try{ localStorage.setItem("smmwe_groq_worker_url", url); }catch(e){}
+function abrirModalGroq(){
+  document.getElementById("groqTestResult").textContent = "";
+  document.getElementById("groqModalOverlay").classList.add("open");
 }
-function salvarApiKey(){
+function fecharModalGroq(){
+  document.getElementById("groqModalOverlay").classList.remove("open");
+}
+function salvarConfigGroq(){
+  const url = document.getElementById("groqWorkerUrl").value.trim();
   const key = document.getElementById("groqApiKey").value.trim();
-  try{ localStorage.setItem("smmwe_groq_api_key", key); }catch(e){}
+  try{
+    localStorage.setItem("smmwe_groq_worker_url", url);
+    localStorage.setItem("smmwe_groq_api_key", key);
+  }catch(e){}
+  atualizarStatusGroqInicial();
+  fecharModalGroq();
+  toast("Configuração da Groq salva!");
+  log("⚙️ Configuração da Groq atualizada.","ok");
+}
+function atualizarStatusGroqInicial(){
+  const url = document.getElementById("groqWorkerUrl").value.trim();
+  if(url) groqStatus("⭘ Groq configurado (pronto)","ok");
+  else groqStatus("⭘ Groq não configurado","");
+}
+async function testarConexaoGroq(){
+  const url = document.getElementById("groqWorkerUrl").value.trim();
+  const key = document.getElementById("groqApiKey").value.trim();
+  const out = document.getElementById("groqTestResult");
+  if(!url){ out.textContent = "⚠️ Informe a URL do Worker."; out.style.color = "var(--accent2)"; return; }
+  out.textContent = "⏳ Testando...";
+  out.style.color = "var(--dim)";
+  try{
+    const headers = { "Content-Type": "application/json" };
+    if(key) headers["X-Groq-Key"] = key;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ system:"", messages:[{role:"user", content:"Responda apenas: ok"}] })
+    });
+    const data = await resp.json();
+    if(data.error){ out.textContent = "❌ "+ (typeof data.error==="string"?data.error:JSON.stringify(data.error)); out.style.color="var(--accent)"; return; }
+    const texto = data?.content?.[0]?.text || "";
+    out.textContent = "✅ Conectado! Resposta: " + texto.slice(0,60);
+    out.style.color = "var(--accent3)";
+  }catch(e){
+    out.textContent = "❌ Erro de conexão: " + e.message;
+    out.style.color = "var(--accent)";
+  }
 }
 document.addEventListener("DOMContentLoaded", ()=>{
   try{
@@ -742,10 +814,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
     const savedKey = localStorage.getItem("smmwe_groq_api_key");
     if(savedKey) document.getElementById("groqApiKey").value = savedKey;
   }catch(e){}
-  const inpUrl = document.getElementById("groqWorkerUrl");
-  if(inpUrl) inpUrl.addEventListener("change", salvarWorkerUrl);
-  const inpKey = document.getElementById("groqApiKey");
-  if(inpKey) inpKey.addEventListener("change", salvarApiKey);
+  atualizarStatusGroqInicial();
 });
 
 function extrairJSON(texto){
@@ -764,12 +833,11 @@ function extrairJSON(texto){
 async function gerarComGroq(){
   const url = document.getElementById("groqWorkerUrl").value.trim();
   if(!url){
-    groqStatus("⚠️ Informe a URL do Worker","err");
+    groqStatus("⚠️ Configure o Worker primeiro","err");
     log("Configure a URL do Worker Cloudflare (que chama a Groq) antes de gerar.","err");
+    abrirModalGroq();
     return;
   }
-  salvarWorkerUrl();
-  salvarApiKey();
   const apiKey = document.getElementById("groqApiKey").value.trim();
 
   const btn = document.getElementById("btnGerarGroq");
