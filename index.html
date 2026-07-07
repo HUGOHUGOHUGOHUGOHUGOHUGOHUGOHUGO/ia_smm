@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>SMMWE OpenWE — Editor de Fases IA v1.0</title>
+<title>SMMWE OpenWE — Editor de Fases IA v1.1</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&display=swap');
@@ -255,14 +255,24 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
     <h2>🧠 Configurar IA (Groq)</h2>
     <div id="groqModalBody">
       <p style="font-size:9px;color:var(--dim);margin-bottom:10px;line-height:1.5;">
-        Cole aqui a URL do seu Worker Cloudflare e (opcionalmente) sua chave da API Groq.
-        Esses dados ficam salvos apenas neste navegador (localStorage) e são enviados ao
-        seu Worker a cada geração. Não compartilhe o link do site com esses campos preenchidos.
+        Cole aqui sua chave da API Groq (console.groq.com). O site chama a Groq
+        <b>diretamente do navegador</b>, sem servidor intermediário. A chave fica salva
+        apenas neste navegador (localStorage).
+        <br><br>
+        ⚠️ <b>Atenção:</b> como não há servidor no meio, a chave fica visível em quem
+        acessar este site e abrir o DevTools/Network do navegador. Use apenas em uso
+        pessoal/local — não compartilhe o link do site com a chave preenchida, e evite
+        publicar este arquivo num site público com sua chave real dentro dele.
       </p>
-      <label>URL do Worker (Cloudflare)</label>
-      <input type="text" id="groqWorkerUrl" placeholder="https://seu-worker.workers.dev">
-      <label>Chave da API Groq <span style="color:var(--dim)">(opcional se já configurada no Worker)</span></label>
+      <label>Chave da API Groq</label>
       <input type="text" id="groqApiKey" placeholder="gsk_...">
+      <label>Modelo</label>
+      <select id="groqModel">
+        <option value="llama-3.3-70b-versatile" selected>llama-3.3-70b-versatile</option>
+        <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (mais rápido)</option>
+        <option value="openai/gpt-oss-120b">openai/gpt-oss-120b</option>
+        <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (mais rápido)</option>
+      </select>
       <div id="groqTestResult" style="font-size:9px;margin-top:6px;min-height:14px;"></div>
     </div>
     <div id="groqModalFooter">
@@ -743,8 +753,10 @@ async function gerarIA() {
 }
 
 // ============================================================
-// GERAÇÃO COM IA REAL (GROQ via Cloudflare Worker)
+// GERAÇÃO COM IA REAL (GROQ — chamada direta do navegador)
 // ============================================================
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+
 const GROQ_TILES_PERMITIDOS = [
   "ground","hardblock","brick","qblock","noteblock","pipe","platform",
   "coin","coin10","redcoin","star","mushroom","fireflower","1up","spring","checkpoint",
@@ -766,11 +778,11 @@ function fecharModalGroq(){
   document.getElementById("groqModalOverlay").classList.remove("open");
 }
 function salvarConfigGroq(){
-  const url = document.getElementById("groqWorkerUrl").value.trim();
   const key = document.getElementById("groqApiKey").value.trim();
+  const model = document.getElementById("groqModel").value;
   try{
-    localStorage.setItem("smmwe_groq_worker_url", url);
     localStorage.setItem("smmwe_groq_api_key", key);
+    localStorage.setItem("smmwe_groq_model", model);
   }catch(e){}
   atualizarStatusGroqInicial();
   fecharModalGroq();
@@ -778,41 +790,55 @@ function salvarConfigGroq(){
   log("⚙️ Configuração da Groq atualizada.","ok");
 }
 function atualizarStatusGroqInicial(){
-  const url = document.getElementById("groqWorkerUrl").value.trim();
-  if(url) groqStatus("⭘ Groq configurado (pronto)","ok");
+  const key = document.getElementById("groqApiKey").value.trim();
+  if(key) groqStatus("⭘ Groq configurado (pronto)","ok");
   else groqStatus("⭘ Groq não configurado","");
 }
+async function chamarGroq(systemPrompt, userPrompt, apiKey, model){
+  const resp = await fetch(GROQ_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: model || "llama-3.3-70b-versatile",
+      temperature: 1,
+      max_tokens: 8192,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    }),
+  });
+  const data = await resp.json();
+  if(data.error){
+    throw new Error(typeof data.error === "string" ? data.error : (data.error.message || JSON.stringify(data.error)));
+  }
+  return data?.choices?.[0]?.message?.content || "";
+}
 async function testarConexaoGroq(){
-  const url = document.getElementById("groqWorkerUrl").value.trim();
   const key = document.getElementById("groqApiKey").value.trim();
+  const model = document.getElementById("groqModel").value;
   const out = document.getElementById("groqTestResult");
-  if(!url){ out.textContent = "⚠️ Informe a URL do Worker."; out.style.color = "var(--accent2)"; return; }
+  if(!key){ out.textContent = "⚠️ Informe a chave da API."; out.style.color = "var(--accent2)"; return; }
   out.textContent = "⏳ Testando...";
   out.style.color = "var(--dim)";
   try{
-    const headers = { "Content-Type": "application/json" };
-    if(key) headers["X-Groq-Key"] = key;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ system:"", messages:[{role:"user", content:"Responda apenas: ok"}] })
-    });
-    const data = await resp.json();
-    if(data.error){ out.textContent = "❌ "+ (typeof data.error==="string"?data.error:JSON.stringify(data.error)); out.style.color="var(--accent)"; return; }
-    const texto = data?.content?.[0]?.text || "";
+    const texto = await chamarGroq("", "Responda apenas: ok", key, model);
     out.textContent = "✅ Conectado! Resposta: " + texto.slice(0,60);
     out.style.color = "var(--accent3)";
   }catch(e){
-    out.textContent = "❌ Erro de conexão: " + e.message;
+    out.textContent = "❌ Erro: " + e.message;
     out.style.color = "var(--accent)";
   }
 }
 document.addEventListener("DOMContentLoaded", ()=>{
   try{
-    const savedUrl = localStorage.getItem("smmwe_groq_worker_url");
-    if(savedUrl) document.getElementById("groqWorkerUrl").value = savedUrl;
     const savedKey = localStorage.getItem("smmwe_groq_api_key");
     if(savedKey) document.getElementById("groqApiKey").value = savedKey;
+    const savedModel = localStorage.getItem("smmwe_groq_model");
+    if(savedModel) document.getElementById("groqModel").value = savedModel;
   }catch(e){}
   atualizarStatusGroqInicial();
 });
@@ -831,14 +857,14 @@ function extrairJSON(texto){
 }
 
 async function gerarComGroq(){
-  const url = document.getElementById("groqWorkerUrl").value.trim();
-  if(!url){
-    groqStatus("⚠️ Configure o Worker primeiro","err");
-    log("Configure a URL do Worker Cloudflare (que chama a Groq) antes de gerar.","err");
+  const apiKey = document.getElementById("groqApiKey").value.trim();
+  if(!apiKey){
+    groqStatus("⚠️ Configure a chave primeiro","err");
+    log("Configure sua chave da API Groq antes de gerar.","err");
     abrirModalGroq();
     return;
   }
-  const apiKey = document.getElementById("groqApiKey").value.trim();
+  const model = document.getElementById("groqModel").value;
 
   const btn = document.getElementById("btnGerarGroq");
   btn.disabled = true;
@@ -890,21 +916,7 @@ Responda apenas o JSON.`;
 
   let design = null;
   try{
-    const headers = { "Content-Type": "application/json" };
-    if(apiKey) headers["X-Groq-Key"] = apiKey;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }]
-      })
-    });
-    const data = await resp.json();
-    if(data.error){
-      throw new Error(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
-    }
-    const texto = data?.content?.[0]?.text || "";
+    const texto = await chamarGroq(systemPrompt, userPrompt, apiKey, model);
     design = extrairJSON(texto);
     if(!design) throw new Error("Resposta da IA não veio em JSON válido.");
   }catch(e){
