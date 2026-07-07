@@ -1080,9 +1080,30 @@ function carregarTemplate(){
   const r=new FileReader();
   r.onload=e=>{
     try{
-      const raw=e.target.result;
-      const base64=raw.slice(0,-40);
-      template=JSON.parse(atob(base64));
+      const rawOriginal = e.target.result;
+      // Remove espaços/quebras de linha nas pontas (alguns editores/downloads adicionam)
+      const raw = rawOriginal.replace(/^\uFEFF/, "").trim();
+      if(raw.length<=40){
+        throw new Error("Arquivo muito curto ou vazio para ser um .swe válido.");
+      }
+      let base64 = raw.slice(0,-40);
+      // Remove qualquer espaço/quebra de linha que tenha ficado no meio do base64
+      base64 = base64.replace(/\s+/g,"");
+      // Compatibiliza com base64 "URL-safe" (- e _) caso o arquivo tenha vindo assim
+      base64 = base64.replace(/-/g,"+").replace(/_/g,"/");
+      // Corrige o padding (=) caso esteja faltando
+      const resto = base64.length % 4;
+      if(resto===2) base64 += "==";
+      else if(resto===3) base64 += "=";
+      else if(resto===1) throw new Error("Base64 do arquivo parece corrompido (tamanho inválido).");
+
+      let decodedJson;
+      try{
+        decodedJson = atob(base64);
+      }catch(errAtob){
+        throw new Error("Não foi possível decodificar o conteúdo do arquivo (base64 inválido). Verifique se o arquivo .swe não foi alterado/corrompido.");
+      }
+      template=JSON.parse(decodedJson);
       extrairBanco();
       document.getElementById("templateStatus").className="badge ok";
       document.getElementById("templateStatus").textContent="✅ Template ok";
@@ -1094,6 +1115,11 @@ function carregarTemplate(){
       document.getElementById("templateStatus").className="badge err";
       document.getElementById("templateStatus").textContent="❌ Erro";
     }
+  };
+  r.onerror=()=>{
+    log("Erro ao ler o arquivo: "+(r.error?.message||"desconhecido"),"err");
+    document.getElementById("templateStatus").className="badge err";
+    document.getElementById("templateStatus").textContent="❌ Erro";
   };
   r.readAsText(f);
 }
