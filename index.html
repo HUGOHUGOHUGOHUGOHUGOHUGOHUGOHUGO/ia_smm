@@ -1,4 +1,3 @@
-cat > /home/claude/SMMWE_Editor.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -170,13 +169,27 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
       <input type="range" id="cfgInimigos" min="0" max="100" value="30" oninput="document.getElementById('inimLabel').textContent=this.value+'%'">
       <label>Buracos <span id="buraLabel">20%</span></label>
       <input type="range" id="cfgBuracos" min="0" max="100" value="20" oninput="document.getElementById('buraLabel').textContent=this.value+'%'">
-      <button class="btn green" id="btnGerar" onclick="gerarIA()">⚡ Gerar com IA</button>
+      <button class="btn green" id="btnGerar" onclick="gerarIA()">⚡ Gerar (Procedural)</button>
       <button class="btn yellow" onclick="melhorarIA()">✨ Melhorar Fase</button>
       <button class="btn" onclick="simularIA()">🤖 Simular Caminho</button>
       <button class="btn red" onclick="limparMapa()">🗑️ Limpar</button>
     </div>
 
+    <div class="s-title">🧠 IA Real (Groq)</div>
+    <div class="s-body">
+      <label>URL do Worker (Cloudflare)</label>
+      <input type="text" id="groqWorkerUrl" placeholder="https://seu-worker.workers.dev">
+      <label>Chave da API Groq</label>
+      <input type="text" id="groqApiKey" placeholder="gsk_...">
+      <label>Instruções extras (opcional)</label>
+      <input type="text" id="groqPrompt" placeholder="Ex: fase temática de deserto com muitos canos">
+      <button class="btn green" id="btnGerarGroq" onclick="gerarComGroq()">🧠 Gerar com Groq</button>
+      <span class="badge" id="groqStatus" style="display:block;margin-top:4px;text-align:center;">⭘ Groq não configurado</span>
+      <div style="font-size:8px;color:var(--dim);margin-top:5px;line-height:1.4;">🔒 A chave fica salva só neste navegador (localStorage) e é enviada ao seu Worker a cada geração. Não compartilhe o link do site com a chave preenchida.</div>
+    </div>
+
     <div class="s-title">🖊️ Pincel</div>
+
     <div id="paletteArea"></div>
 
     <div class="s-title">↩️ Histórico</div>
@@ -699,6 +712,225 @@ async function gerarIA() {
 }
 
 // ============================================================
+// GERAÇÃO COM IA REAL (GROQ via Cloudflare Worker)
+// ============================================================
+const GROQ_TILES_PERMITIDOS = [
+  "ground","hardblock","brick","qblock","noteblock","pipe","platform",
+  "coin","coin10","redcoin","star","mushroom","fireflower","1up","spring","checkpoint",
+  "goomba","goomba_w","koopa","koopa_red","buzzy","spiny","drybones","muncher",
+  "piranha","hammerbro","lakitu","thwomp","bulletbill","podoboo","pokey"
+];
+
+function groqStatus(msg, tipo){
+  const el = document.getElementById("groqStatus");
+  el.className = "badge" + (tipo?(" "+tipo):"");
+  el.textContent = msg;
+}
+
+function salvarWorkerUrl(){
+  const url = document.getElementById("groqWorkerUrl").value.trim();
+  try{ localStorage.setItem("smmwe_groq_worker_url", url); }catch(e){}
+}
+function salvarApiKey(){
+  const key = document.getElementById("groqApiKey").value.trim();
+  try{ localStorage.setItem("smmwe_groq_api_key", key); }catch(e){}
+}
+document.addEventListener("DOMContentLoaded", ()=>{
+  try{
+    const savedUrl = localStorage.getItem("smmwe_groq_worker_url");
+    if(savedUrl) document.getElementById("groqWorkerUrl").value = savedUrl;
+    const savedKey = localStorage.getItem("smmwe_groq_api_key");
+    if(savedKey) document.getElementById("groqApiKey").value = savedKey;
+  }catch(e){}
+  const inpUrl = document.getElementById("groqWorkerUrl");
+  if(inpUrl) inpUrl.addEventListener("change", salvarWorkerUrl);
+  const inpKey = document.getElementById("groqApiKey");
+  if(inpKey) inpKey.addEventListener("change", salvarApiKey);
+});
+
+function extrairJSON(texto){
+  if(!texto) return null;
+  let t = texto.trim();
+  // Remove blocos de código markdown ```json ... ``` ou ``` ... ```
+  t = t.replace(/```json\s*/gi,"").replace(/```/g,"").trim();
+  // Pega do primeiro { até o último }
+  const ini = t.indexOf("{");
+  const fim = t.lastIndexOf("}");
+  if(ini===-1||fim===-1||fim<ini) return null;
+  t = t.slice(ini, fim+1);
+  try{ return JSON.parse(t); }catch(e){ return null; }
+}
+
+async function gerarComGroq(){
+  const url = document.getElementById("groqWorkerUrl").value.trim();
+  if(!url){
+    groqStatus("⚠️ Informe a URL do Worker","err");
+    log("Configure a URL do Worker Cloudflare (que chama a Groq) antes de gerar.","err");
+    return;
+  }
+  salvarWorkerUrl();
+  salvarApiKey();
+  const apiKey = document.getElementById("groqApiKey").value.trim();
+
+  const btn = document.getElementById("btnGerarGroq");
+  btn.disabled = true;
+  groqStatus("⏳ Consultando Groq...","");
+  log("🧠 Enviando pedido de geração para a IA (Groq)...","warn");
+
+  const dif    = document.getElementById("dificuldade").value;
+  const tema   = document.getElementById("tema").value;
+  const estilo = document.getElementById("estilo").value;
+  const densIn = parseInt(document.getElementById("cfgInimigos").value);
+  const freqB  = parseInt(document.getElementById("cfgBuracos").value);
+  const extra  = document.getElementById("groqPrompt").value.trim();
+  const yG = tema==="sky" ? Math.floor(altura*0.8) : altura-4;
+  const xUtil = largura - 12; // deixa margem inicial e final (spawn/bandeira)
+
+  const systemPrompt =
+`Você é um designer de fases de Super Mario Maker. Sua tarefa é planejar o LAYOUT de uma fase e responder APENAS com um JSON válido, sem markdown, sem comentários, sem texto antes ou depois.
+
+O grid da fase tem largura=${largura} colunas (x de 6 até ${xUtil}) e o chão principal fica na linha y=${yG} (y=0 é o topo, y aumenta para baixo).
+
+Tiles de estrutura permitidos: ground, hardblock, brick, qblock, noteblock, pipe, platform.
+Tiles de item permitidos: coin, coin10, redcoin, star, mushroom, fireflower, 1up, spring, checkpoint.
+Tiles de inimigo permitidos: goomba, goomba_w, koopa, koopa_red, buzzy, spiny, drybones, muncher, piranha, hammerbro, lakitu, thwomp, bulletbill, podoboo, pokey.
+
+Responda SOMENTE neste formato JSON exato:
+{
+  "buracos": [{"x": <int>, "largura": <int 1-6>}],
+  "estruturas": [{"tipo": "pipe|platform|brick|qblock|noteblock", "x": <int>, "y_offset": <int 1-6>, "largura": <int 1-6>}],
+  "inimigos": [{"tipo": "<um dos inimigos permitidos>", "x": <int>}],
+  "itens": [{"tipo": "<um dos itens permitidos>", "x": <int>, "y_offset": <int 1-6>}]
+}
+
+Regras:
+- "x" sempre entre 6 e ${xUtil}.
+- "y_offset" é quantos blocos ACIMA do chão (y_offset=1 é logo acima do chão).
+- Gere entre 3 e ${Math.max(4,Math.round(xUtil/12))} buracos, cada um com largura proporcional à dificuldade (mais largos = mais difícil).
+- Gere estruturas e itens distribuídos ao longo de toda a largura útil, não só no começo.
+- Não repita o mesmo "x" em itens diferentes.`;
+
+  const userPrompt =
+`Gere o layout de uma fase com:
+- Dificuldade: ${dif}
+- Tema: ${tema}
+- Estilo: ${estilo}
+- Intensidade de inimigos (0-100): ${densIn}
+- Intensidade de buracos (0-100): ${freqB}
+${extra ? "- Pedido extra do usuário: "+extra : ""}
+Responda apenas o JSON.`;
+
+  let design = null;
+  try{
+    const headers = { "Content-Type": "application/json" };
+    if(apiKey) headers["X-Groq-Key"] = apiKey;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }]
+      })
+    });
+    const data = await resp.json();
+    if(data.error){
+      throw new Error(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
+    }
+    const texto = data?.content?.[0]?.text || "";
+    design = extrairJSON(texto);
+    if(!design) throw new Error("Resposta da IA não veio em JSON válido.");
+  }catch(e){
+    groqStatus("❌ Falha na Groq","err");
+    log("Erro ao consultar a IA: "+e.message+" — usando geração procedural como fallback.","err");
+    btn.disabled = false;
+    gerarIA();
+    return;
+  }
+
+  aplicarDesignIA(design, {dif, tema, yG, xUtil});
+  groqStatus("✅ Fase gerada pela Groq","ok");
+  btn.disabled = false;
+}
+
+function aplicarDesignIA(design, ctx){
+  const {tema, yG, xUtil} = ctx;
+  criarGrid(); salvarHistorico(); caminhoIA=[];
+
+  // Chão base
+  for(let x=0;x<largura;x++) mapa[yG][x]="ground";
+  if(tema==="underground"||tema==="castle"){
+    for(let x=0;x<largura;x++) mapa[0][x]="hardblock";
+    for(let y=0;y<altura;y++){mapa[y][0]="hardblock";mapa[y][largura-1]="hardblock";}
+  }
+
+  const clampX = x => Math.max(6, Math.min(xUtil, Math.round(x)));
+  const clampOff = o => Math.max(1, Math.min(altura-2, Math.round(o)));
+
+  // Buracos
+  (design.buracos||[]).forEach(b=>{
+    const x0 = clampX(b.x);
+    const larg = Math.max(1, Math.min(6, Math.round(b.largura||2)));
+    for(let i=0;i<larg;i++){
+      const x = x0+i;
+      if(x>0 && x<largura-6) mapa[yG][x]=0;
+    }
+  });
+
+  // Estruturas
+  (design.estruturas||[]).forEach(s=>{
+    const x = clampX(s.x);
+    const off = clampOff(s.y_offset||3);
+    const larg = Math.max(1, Math.min(6, Math.round(s.largura||1)));
+    const y = yG-off;
+    if(y<1) return;
+    if(s.tipo==="pipe"){
+      if(mapa[yG][x]!=="ground") return;
+      mapa[yG-1][x]="pipe"; if(yG-2>0) mapa[yG-2][x]="pipe"; if(yG-3>0) mapa[yG-3][x]="pipe_top";
+    } else if(s.tipo==="platform"){
+      for(let i=0;i<larg;i++){ if(x+i<largura-5) mapa[y][x+i]="platform"; }
+    } else if(["brick","qblock","noteblock"].includes(s.tipo)){
+      for(let i=0;i<larg;i++){ if(x+i<largura-5) mapa[y][x+i]=s.tipo; }
+    }
+  });
+
+  // Inimigos
+  (design.inimigos||[]).forEach(en=>{
+    if(!GROQ_TILES_PERMITIDOS.includes(en.tipo)) return;
+    const x = clampX(en.x);
+    if(mapa[yG][x]==="ground" && mapa[yG-1][x]===0) mapa[yG-1][x]=en.tipo;
+  });
+
+  // Itens
+  (design.itens||[]).forEach(it=>{
+    if(!GROQ_TILES_PERMITIDOS.includes(it.tipo)) return;
+    const x = clampX(it.x);
+    const off = clampOff(it.y_offset||2);
+    const y = yG-off;
+    if(y>0 && mapa[y][x]===0) mapa[y][x]=it.tipo;
+  });
+
+  // Bandeira final
+  const flagX=largura-4;
+  for(let fy=0;fy<altura;fy++) mapa[fy][flagX]=0;
+  mapa[yG][flagX]="hardblock";
+  const poleH=Math.min(7,yG-1);
+  for(let i=1;i<=poleH;i++) mapa[yG-i][flagX]="flagpole";
+  if(yG-poleH-1>=0) mapa[yG-poleH-1][flagX]="flag";
+
+  render();
+  const ok = simularIA();
+  if(!ok){
+    log("⚠️ Correção de buracos automática (caminho impossível detectado)...","warn");
+    corrigirFase(yG);
+    render();
+    simularIA();
+  }
+  atualizarTileCount();
+  log(`✅ Fase gerada pela Groq! [${ctx.dif}/${tema}] ${largura}×${altura}`,"ok");
+  toast("Fase gerada pela IA (Groq)!");
+}
+
+// ============================================================
 // MELHORAR
 // ============================================================
 function melhorarIA(){
@@ -984,5 +1216,3 @@ log(`Paleta: ${Object.keys(TILES).length} tiles de ${CATEGORIAS.length} categori
 </script>
 </body>
 </html>
-HTMLEOF
-echo "Done: $(wc -c < /home/claude/SMMWE_Editor.html) bytes"
