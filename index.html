@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>SMMWE OpenWE — Editor de Fases IA v1.1</title>
+<title>SMMWE OpenWE — Editor de Fases IA v1.2</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&display=swap');
@@ -94,7 +94,7 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
 <body>
 
 <div id="header">
-  <h1>🍄 SMMWE <span>OpenWE</span><span class="ver">v1.1</span></h1>
+  <h1>🍄 SMMWE <span>OpenWE</span><span class="ver">v1.2</span></h1>
   <div style="flex:1"></div>
   <div style="font-size:8px;color:var(--dim)">Editor de Fases IA · PC Build · 811 objetos</div>
 </div>
@@ -889,14 +889,21 @@ IMPORTANTE sobre os IDs: escolha SEMPRE um ID real dessa lista pra cada elemento
 `Nenhum template .swe foi carregado ainda, então não use o campo "id" (deixe null) — apenas "tipo".`;
 
   const systemPrompt =
-`Você é um desenvolvedor especialista em level design e automação de jogos, encarregado de criar uma nova fase de Super Mario Maker com base nos dados de contexto fornecidos abaixo (IDs reais extraídos do(s) template(s) .swe carregado(s) pelo usuário).
+`Atue como um desenvolvedor de jogos especialista em geração procedural e design de níveis. Sua tarefa é criar um novo level de Super Mario Maker seguindo estritamente as regras abaixo, dividindo seu processo em quatro etapas consecutivas.
 
-[REQUISITO IMPORTANTE]: Não faça mapeamento de IDs. Não existe processo separado de "mapear IDs" — você escolhe os IDs reais diretamente, agora, com base na lista fornecida.
+[REQUISITO IMPORTANTE]: Não faça mapeamento de IDs. Não existe processo separado de "mapear IDs" — nesta mesma resposta você já escolhe os IDs reais diretamente, com base na lista de templates fornecida na Etapa 1.
 
-Siga este processo, nesta ordem:
-1. LEITURA: analise a lista de IDs reais fornecida e as configurações da fase (dificuldade, tema, estilo) abaixo.
-2. PLANEJAMENTO (Chain of Thought): antes de montar a estrutura final, pense brevemente no conceito da fase, nos desafios que vai propor, e em quais IDs reais (de um conjunto visualmente coerente) fazem mais sentido pra cada elemento. Escreva esse raciocínio de forma curta no campo "planejamento" do JSON de resposta (2-4 frases, texto simples).
-3. CRIAÇÃO: com base no seu planejamento, preencha os demais campos do JSON com a estrutura completa da fase.
+1. LEITURA E ANÁLISE DOS TEMPLATES:
+Leia atentamente a lista de IDs reais extraídos do(s) template(s) .swe fornecida na seção "TEMPLATES" abaixo. Esses IDs são os únicos objetos que existem de verdade no jogo do usuário — identifique quais parecem ser chão, blocos, canos, inimigos, itens etc, pelo nome de cada ID.
+
+2. COMPREENSÃO DAS CONFIGURAÇÕES:
+Analise as configurações fornecidas pelo usuário (na mensagem seguinte, seção "CONFIGURAÇÕES"): dificuldade, tema, estilo, intensidade de inimigos e de buracos, e qualquer pedido extra. Entenda o que cada parâmetro dita sobre o tamanho dos desafios, quantidade de inimigos/itens, e o clima geral da fase.
+
+3. PLANEJAMENTO DA LÓGICA (pense antes de gerar):
+Antes de montar a estrutura final, descreva brevemente (2-4 frases, em um único parágrafo) sua estratégia de design no campo "planejamento" do JSON de resposta: o conceito da fase, os desafios propostos, a progressão ao longo do nível, e quais IDs reais (de um conjunto visualmente coerente) você vai usar pra cada tipo de elemento.
+
+4. GERAÇÃO DO LEVEL:
+Com base na leitura e no planejamento anteriores, gere a estrutura completa do level nos demais campos do JSON, formatada exatamente conforme o esquema abaixo — usando IDs reais da lista de templates, nunca inventados.
 
 Responda APENAS com um JSON válido (o objeto abaixo), sem markdown, sem texto antes ou depois do JSON.
 
@@ -906,11 +913,12 @@ Tiles de estrutura permitidos: ground, hardblock, brick, qblock, noteblock, pipe
 Tiles de item permitidos: coin, coin10, redcoin, star, mushroom, fireflower, 1up, spring, checkpoint.
 Tiles de inimigo permitidos: goomba, goomba_w, koopa, koopa_red, buzzy, spiny, drybones, muncher, piranha, hammerbro, lakitu, thwomp, bulletbill, podoboo, pokey.
 
+=== TEMPLATES ===
 ${blocoIds}
 
 Responda SOMENTE neste formato JSON exato:
 {
-  "planejamento": "<seu raciocínio breve de leitura+planejamento, 2-4 frases>",
+  "planejamento": "<seu parágrafo breve de leitura+planejamento, 2-4 frases>",
   "chao_id": <ID real do chão, ou null>,
   "borda_id": <ID real de bloco duro pra borda do mapa (temas underground/castle), ou null>,
   "cano_id": <ID real de corpo de cano, ou null>,
@@ -928,21 +936,22 @@ Regras:
 - "y_offset" é quantos blocos ACIMA do chão (y_offset=1 é logo acima do chão).
 - Gere entre 3 e ${limiteBuracos} buracos, cada um com largura proporcional à dificuldade (mais largos = mais difícil).
 - Gere no máximo ${limiteEstruturas} estruturas, ${limiteInimigos} inimigos e ${limiteItens} itens no total. Seja econômico, não gere mais que isso.
-- Gere estruturas e itens distribuídos ao longo de toda a largura útil, não só no começo.
+- Gere estruturas e itens distribuídos ao longo de toda a largura útil, respeitando uma progressão lógica (mais fácil no início, mais desafiador ao longo da fase), não só amontoados no começo.
 - Não repita o mesmo "x" em itens diferentes.
 - O campo "planejamento" deve ser curto (2-4 frases) — não escreva um ensaio.
 - Fora isso, responda de forma compacta: JSON sem espaços/indentação desnecessários.`;
 
 
   const userPrompt =
-`Gere o layout de uma fase com:
+`=== CONFIGURAÇÕES ===
 - Dificuldade: ${dif}
 - Tema: ${tema}
 - Estilo: ${estilo}
 - Intensidade de inimigos (0-100): ${densIn}
 - Intensidade de buracos (0-100): ${freqB}
 ${extra ? "- Pedido extra do usuário: "+extra : ""}
-Responda apenas o JSON.`;
+
+Siga as 4 etapas e responda apenas o JSON.`;
 
   let design = null;
   try{
