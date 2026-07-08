@@ -83,20 +83,6 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
 #toast{position:fixed;bottom:55px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--blue);border:1px solid var(--accent3);color:var(--accent3);padding:5px 16px;border-radius:4px;font-size:10px;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;z-index:99;}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
-/* MODAL */
-#modalOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;}
-#modalOverlay.open{display:flex;}
-#modalBox{background:var(--panel);border:1px solid var(--accent);border-radius:6px;width:640px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;overflow:hidden;}
-#modalBox h2{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--accent);padding:10px 14px;background:var(--blue);letter-spacing:1px;}
-#modalBody{flex:1;overflow-y:auto;padding:10px 14px;}
-#modalBody::-webkit-scrollbar{width:3px;}
-#modalBody::-webkit-scrollbar-thumb{background:var(--blue2);}
-.map-row{display:flex;align-items:center;gap:6px;margin-bottom:5px;}
-.map-row .mlabel{width:100px;flex-shrink:0;color:var(--accent2);font-size:9px;}
-.map-row select{flex:1;margin-bottom:0;font-size:9px;padding:2px 4px;}
-.map-row .mst{font-size:10px;width:16px;text-align:center;}
-#modalFooter{padding:8px 14px;background:var(--blue);display:flex;gap:6px;justify-content:flex-end;}
-
 #groqModalOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;}
 #groqModalOverlay.open{display:flex;}
 #groqModalBox{background:var(--panel);border:1px solid var(--accent3);border-radius:6px;width:420px;max-width:92vw;max-height:82vh;display:flex;flex-direction:column;overflow:hidden;}
@@ -122,7 +108,6 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
       <input type="file" id="templateFile" accept=".swe" multiple>
       <button class="btn" onclick="carregarTemplate()">📂 Carregar/Adicionar Base(s)</button>
       <div id="basesLista" style="font-size:9px;color:var(--dim);margin:4px 0;line-height:1.6;"></div>
-      <button class="btn yellow" id="btnMapIds" style="display:none" onclick="abrirModal()">🗂️ Mapear IDs</button>
       <hr>
       <label>Nome da Fase</label>
       <input type="text" id="nomeFase" placeholder="Minha Fase">
@@ -230,21 +215,6 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
 </div>
 
 <div id="toast"></div>
-
-<!-- MODAL MAPEAMENTO -->
-<div id="modalOverlay" onclick="if(event.target===this)fecharModal()">
-  <div id="modalBox">
-    <h2>🗂️ Mapear IDs do Template</h2>
-    <div id="modalBody">
-      <p style="font-size:9px;color:var(--dim);margin-bottom:8px;">Associe cada tile ao ID correto do seu template. IDs detectados automaticamente aparecem em verde.</p>
-      <div id="mapRows"></div>
-    </div>
-    <div id="modalFooter">
-      <button class="btn" onclick="fecharModal()">Cancelar</button>
-      <button class="btn green" onclick="aplicarMapeamento()">✅ Salvar</button>
-    </div>
-  </div>
-</div>
 
 <!-- MODAL CONFIG GROQ -->
 <div id="groqModalOverlay" onclick="if(event.target===this)fecharModalGroq()">
@@ -900,10 +870,11 @@ async function gerarComGroq(){
   const limiteEstruturas = Math.max(4, Math.min(14, Math.round(xUtil/10)));
   const limiteInimigos   = Math.max(4, Math.min(16, Math.round(xUtil/8)));
   const limiteItens      = Math.max(4, Math.min(16, Math.round(xUtil/8)));
-  // Cada item do JSON gasta ~20-28 tokens agora (tem campo "id" extra); deixamos
-  // folga e um teto seguro pra não estourar o limite de tokens por minuto (TPM) da Groq.
+  // Cada item do JSON gasta ~20-28 tokens (tem campo "id" extra), e o campo
+  // "planejamento" some ~100-150 tokens a mais. Deixamos folga e um teto seguro
+  // pra não estourar o limite de tokens por minuto (TPM) da Groq.
   const itensEstimados = limiteBuracos+limiteEstruturas+limiteInimigos+limiteItens;
-  const maxTokensGeracao = Math.max(1200, Math.min(4200, 500 + itensEstimados*28));
+  const maxTokensGeracao = Math.max(1400, Math.min(4400, 650 + itensEstimados*28));
 
   const idsReais = Object.keys(bancoObjetos);
   const temBase = idsReais.length>0;
@@ -918,7 +889,16 @@ IMPORTANTE sobre os IDs: escolha SEMPRE um ID real dessa lista pra cada elemento
 `Nenhum template .swe foi carregado ainda, então não use o campo "id" (deixe null) — apenas "tipo".`;
 
   const systemPrompt =
-`Você é um designer de fases de Super Mario Maker. Sua tarefa é planejar o LAYOUT de uma fase e responder APENAS com um JSON válido, sem markdown, sem comentários, sem texto antes ou depois.
+`Você é um desenvolvedor especialista em level design e automação de jogos, encarregado de criar uma nova fase de Super Mario Maker com base nos dados de contexto fornecidos abaixo (IDs reais extraídos do(s) template(s) .swe carregado(s) pelo usuário).
+
+[REQUISITO IMPORTANTE]: Não faça mapeamento de IDs. Não existe processo separado de "mapear IDs" — você escolhe os IDs reais diretamente, agora, com base na lista fornecida.
+
+Siga este processo, nesta ordem:
+1. LEITURA: analise a lista de IDs reais fornecida e as configurações da fase (dificuldade, tema, estilo) abaixo.
+2. PLANEJAMENTO (Chain of Thought): antes de montar a estrutura final, pense brevemente no conceito da fase, nos desafios que vai propor, e em quais IDs reais (de um conjunto visualmente coerente) fazem mais sentido pra cada elemento. Escreva esse raciocínio de forma curta no campo "planejamento" do JSON de resposta (2-4 frases, texto simples).
+3. CRIAÇÃO: com base no seu planejamento, preencha os demais campos do JSON com a estrutura completa da fase.
+
+Responda APENAS com um JSON válido (o objeto abaixo), sem markdown, sem texto antes ou depois do JSON.
 
 O grid da fase tem largura=${largura} colunas (x de 6 até ${xUtil}) e o chão principal fica na linha y=${yG} (y=0 é o topo, y aumenta para baixo).
 
@@ -930,6 +910,7 @@ ${blocoIds}
 
 Responda SOMENTE neste formato JSON exato:
 {
+  "planejamento": "<seu raciocínio breve de leitura+planejamento, 2-4 frases>",
   "chao_id": <ID real do chão, ou null>,
   "borda_id": <ID real de bloco duro pra borda do mapa (temas underground/castle), ou null>,
   "cano_id": <ID real de corpo de cano, ou null>,
@@ -949,7 +930,8 @@ Regras:
 - Gere no máximo ${limiteEstruturas} estruturas, ${limiteInimigos} inimigos e ${limiteItens} itens no total. Seja econômico, não gere mais que isso.
 - Gere estruturas e itens distribuídos ao longo de toda a largura útil, não só no começo.
 - Não repita o mesmo "x" em itens diferentes.
-- Responda de forma compacta: JSON sem espaços/indentação desnecessários.`;
+- O campo "planejamento" deve ser curto (2-4 frases) — não escreva um ensaio.
+- Fora isso, responda de forma compacta: JSON sem espaços/indentação desnecessários.`;
 
 
   const userPrompt =
@@ -981,6 +963,9 @@ Responda apenas o JSON.`;
   }
 
   aplicarDesignIA(design, {dif, tema, yG, xUtil});
+  if(design.planejamento){
+    log(`🧠 Raciocínio da IA: ${design.planejamento}`,"warn");
+  }
   groqStatus("✅ Fase gerada pela Groq","ok");
   btn.disabled = false;
 }
@@ -1155,7 +1140,6 @@ async function removerBase(idx){
   if(basesCarregadas.length===0){
     document.getElementById("templateStatus").className="badge err";
     document.getElementById("templateStatus").textContent="❌ Sem template";
-    document.getElementById("btnMapIds").style.display="none";
   } else {
     document.getElementById("templateStatus").textContent=`✅ ${basesCarregadas.length} base(s) ok`;
   }
@@ -1214,7 +1198,6 @@ async function carregarTemplate(){
     renderBasesLista();
     document.getElementById("templateStatus").className="badge ok";
     document.getElementById("templateStatus").textContent=`✅ ${basesCarregadas.length} base(s) ok`;
-    document.getElementById("btnMapIds").style.display="block";
     toast(sucesso>1 ? `${sucesso} bases carregadas!` : "Base carregada!");
   }
   if(falhas>0 && sucesso===0){
@@ -1272,8 +1255,8 @@ async function reconstruirBancoDeTodasAsBases(){
   log(`IDs: ${ids.slice(0,20).join(", ")}${ids.length>20?"...":""}`);
   log(`💡 Ao gerar uma fase com "🧠 Gerar Fase", a própria IA vai ler esses IDs e escolher diretamente quais usar — não depende mais de um mapeamento automático prévio.`);
 
-  // Mapeamento local (regex) fica só como reserva pra pintura manual no pincel
-  // e pro botão "🗂️ Mapear IDs" — a geração via IA agora escolhe os IDs direto.
+  // Mapeamento local (regex) fica só como reserva silenciosa pra pintura manual
+  // no pincel — a geração via IA não usa isso, ela escolhe os IDs direto.
   mapeamentoManual={};
   const naoEncontrados=[];
   const todosTiles=Object.keys(TILES).filter(t=>t!=="erase");
@@ -1284,8 +1267,7 @@ async function reconstruirBancoDeTodasAsBases(){
   }
 
   if(naoEncontrados.length>0){
-    log(`⚠️ Sem ID automático (pincel manual): ${naoEncontrados.join(", ")}`,"warn");
-    log(`Use "🗂️ Mapear IDs" pra associar manualmente, se for pintar esses tiles à mão.`,"warn");
+    log(`⚠️ Sem ID automático pro pincel manual: ${naoEncontrados.join(", ")}. Isso não afeta a geração por IA — só a pintura manual desses tiles específicos pode não exportar corretamente.`,"warn");
   }
 }
 
@@ -1338,40 +1320,6 @@ function clonarObjeto(id,x,y){
 }
 
 // ============================================================
-// MODAL DE MAPEAMENTO
-// ============================================================
-function abrirModal(){
-  if(!template){log("Carregue um template primeiro.","err");return;}
-  const ids=["(ignorar)",...Object.keys(bancoObjetos).sort()];
-  const container=document.getElementById("mapRows");
-  container.innerHTML="";
-  const todosTiles=Object.keys(TILES).filter(t=>t!=="erase");
-  for(const tipo of todosTiles){
-    const info=TILES[tipo];
-    const atual=mapeamentoManual[tipo]||"";
-    const row=document.createElement("div");
-    row.className="map-row";
-    row.innerHTML=`
-      <span class="mst">${atual?"✅":"❌"}</span>
-      <label class="mlabel">${info.icone} ${tipo}</label>
-      <select id="ms_${tipo}">
-        ${ids.map(id=>`<option value="${id}"${id===atual?" selected":""}>${id}</option>`).join("")}
-      </select>`;
-    container.appendChild(row);
-  }
-  document.getElementById("modalOverlay").classList.add("open");
-}
-function fecharModal(){document.getElementById("modalOverlay").classList.remove("open");}
-function aplicarMapeamento(){
-  const todosTiles=Object.keys(TILES).filter(t=>t!=="erase");
-  for(const tipo of todosTiles){
-    const sel=document.getElementById(`ms_${tipo}`);
-    if(sel){const v=sel.value;if(v&&v!=="(ignorar)")mapeamentoManual[tipo]=v;else delete mapeamentoManual[tipo];}
-  }
-  fecharModal();log("✅ Mapeamento salvo!","ok");toast("Mapeamento salvo!");
-}
-
-// ============================================================
 // GERAR LEVEL EXPORTÁVEL
 // ============================================================
 function gerarLevel(){
@@ -1393,7 +1341,7 @@ function gerarLevel(){
     if(id){const obj=clonarObjeto(id,x*TILE,y*TILE);if(obj)level.S0.S4.push(obj);}
     else naoEncontrados.add(t);
   }
-  if(naoEncontrados.size>0) log(`⚠️ Tiles ignorados (sem ID): ${[...naoEncontrados].join(", ")} — use 🗂️ Mapear IDs`,"warn");
+  if(naoEncontrados.size>0) log(`⚠️ Tiles ignorados na exportação (sem ID real disponível): ${[...naoEncontrados].join(", ")}. Foram pintados manualmente e nenhuma base carregada tem um ID parecido pra eles.`,"warn");
   log(`Level: ${level.S0.S4.length} objetos exportados.`,"ok");
   return level;
 }
@@ -1448,7 +1396,6 @@ function resetarTudo(){
   template=null;bancoObjetos={};mapeamentoManual={};basesCarregadas=[];
   document.getElementById("templateStatus").className="badge err";
   document.getElementById("templateStatus").textContent="❌ Sem template";
-  document.getElementById("btnMapIds").style.display="none";
   renderBasesLista();
   historico=[];historicoIdx=-1;caminhoIA=[];
   criarGrid();log("Reset total.","warn");toast("Resetado!");
