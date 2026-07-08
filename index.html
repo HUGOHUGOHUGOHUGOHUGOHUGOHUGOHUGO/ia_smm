@@ -108,7 +108,7 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
 <body>
 
 <div id="header">
-  <h1>🍄 SMMWE <span>OpenWE</span><span class="ver">v1.0</span></h1>
+  <h1>🍄 SMMWE <span>OpenWE</span><span class="ver">v1.1</span></h1>
   <div style="flex:1"></div>
   <div style="font-size:8px;color:var(--dim)">Editor de Fases IA · PC Build · 811 objetos</div>
 </div>
@@ -219,7 +219,7 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
   <div id="main">
     <div id="canvas-area"><canvas id="mapCanvas"></canvas></div>
     <div id="logBox">
-      <p class="ok">[OK] SMMWE OpenWE v1.0 — 811 objetos carregados.</p>
+      <p class="ok">[OK] SMMWE OpenWE v1.1 — 811 objetos carregados.</p>
       <p>[INFO] Ctrl+Z desfazer | Ctrl+Y refazer | Ctrl+S exportar | 1-9 tiles | E borracha</p>
     </div>
     <div id="bottom-bar">
@@ -227,7 +227,7 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
       <span class="badge" id="tileCount">Tiles: 0</span>
       <span class="badge err" id="templateStatus">❌ Sem template</span>
       <span class="badge" id="historicoStatus">Hist: 0/50</span>
-      <span style="margin-left:auto;font-size:8px;color:#333">SMMWE OpenWE v1.0 · 2025</span>
+      <span style="margin-left:auto;font-size:8px;color:#333">SMMWE OpenWE v1.1 · 2025</span>
     </div>
   </div>
 </div>
@@ -871,6 +871,11 @@ async function gerarComGroq(){
   groqStatus("⏳ Consultando Groq...","");
   log("🧠 Enviando pedido de geração para a IA (Groq)...","warn");
 
+  // IMPORTANTE: recria o grid (lê largura/altura dos selects) ANTES de calcular
+  // yG/xUtil, para que o prompt enviado à IA descreva o MESMO tamanho de grid
+  // que será usado ao aplicar o design (evita desalinhamento/"mistura" no resultado).
+  criarGrid(); salvarHistorico(); caminhoIA=[];
+
   const dif    = document.getElementById("dificuldade").value;
   const tema   = document.getElementById("tema").value;
   const estilo = document.getElementById("estilo").value;
@@ -934,7 +939,8 @@ Responda apenas o JSON.`;
 
 function aplicarDesignIA(design, ctx){
   const {tema, yG, xUtil} = ctx;
-  criarGrid(); salvarHistorico(); caminhoIA=[];
+  // Obs: o grid já foi recriado em gerarComGroq() antes de montar o prompt,
+  // para garantir que largura/altura batam com o que foi enviado à IA.
 
   // Chão base
   for(let x=0;x<largura;x++) mapa[yG][x]="ground";
