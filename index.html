@@ -437,6 +437,7 @@ const TILE = 16;
 let zoom = 2;
 let largura = 80, altura = 15;
 let mapa = [];
+let mapaIdsOverride = {}; // "y,x" -> ID real escolhido diretamente pela IA pra essa célula
 let template = null, bancoObjetos = {}, mapeamentoManual = {};
 let ferramenta = "ground";
 let pintando = false;
@@ -508,6 +509,7 @@ function criarGrid() {
   largura = parseInt(document.getElementById("tamanho").value);
   altura  = parseInt(document.getElementById("alturaGrid").value);
   mapa = Array.from({length:altura}, () => Array(largura).fill(0));
+  mapaIdsOverride = {};
   canvas.width  = largura * TILE;
   canvas.height = altura  * TILE;
   aplicarZoom();
@@ -572,6 +574,7 @@ function pintar(x,y) {
   const val = ferramenta==="erase" ? 0 : ferramenta;
   if(mapa[y][x]===val) return;
   mapa[y][x]=val;
+  delete mapaIdsOverride[y+","+x]; // pintura manual sobrescreve qualquer ID escolhido pela IA
   renderTile(x,y);
   atualizarTileCount();
 }
@@ -897,10 +900,22 @@ async function gerarComGroq(){
   const limiteEstruturas = Math.max(4, Math.min(14, Math.round(xUtil/10)));
   const limiteInimigos   = Math.max(4, Math.min(16, Math.round(xUtil/8)));
   const limiteItens      = Math.max(4, Math.min(16, Math.round(xUtil/8)));
-  // Cada item do JSON gasta ~15-20 tokens; deixamos folga e um teto seguro
-  // pra não estourar o limite de tokens por minuto (TPM) da Groq.
+  // Cada item do JSON gasta ~20-28 tokens agora (tem campo "id" extra); deixamos
+  // folga e um teto seguro pra não estourar o limite de tokens por minuto (TPM) da Groq.
   const itensEstimados = limiteBuracos+limiteEstruturas+limiteInimigos+limiteItens;
-  const maxTokensGeracao = Math.max(1200, Math.min(4000, 400 + itensEstimados*22));
+  const maxTokensGeracao = Math.max(1200, Math.min(4200, 500 + itensEstimados*28));
+
+  const idsReais = Object.keys(bancoObjetos);
+  const temBase = idsReais.length>0;
+  // Limita a lista de IDs enviada pra IA pra não estourar tokens em bancos gigantes
+  const idsParaPrompt = idsReais.slice(0,150);
+
+  const blocoIds = temBase ?
+`IDs reais de objetos extraídos do(s) template(s) .swe carregado(s) (${idsParaPrompt.length}${idsReais.length>idsParaPrompt.length?` de ${idsReais.length}`:""}):
+${JSON.stringify(idsParaPrompt)}
+
+IMPORTANTE sobre os IDs: escolha SEMPRE um ID real dessa lista pra cada elemento que você posicionar (campo "id" em cada item, e os campos *_id no topo). NUNCA invente um ID que não esteja na lista. Prefira manter todos os elementos vindos de um conjunto visualmente coerente — o objetivo é uma fase com visual consistente, não uma mistura aleatória de vários templates diferentes.` :
+`Nenhum template .swe foi carregado ainda, então não use o campo "id" (deixe null) — apenas "tipo".`;
 
   const systemPrompt =
 `Você é um designer de fases de Super Mario Maker. Sua tarefa é planejar o LAYOUT de uma fase e responder APENAS com um JSON válido, sem markdown, sem comentários, sem texto antes ou depois.
@@ -911,12 +926,20 @@ Tiles de estrutura permitidos: ground, hardblock, brick, qblock, noteblock, pipe
 Tiles de item permitidos: coin, coin10, redcoin, star, mushroom, fireflower, 1up, spring, checkpoint.
 Tiles de inimigo permitidos: goomba, goomba_w, koopa, koopa_red, buzzy, spiny, drybones, muncher, piranha, hammerbro, lakitu, thwomp, bulletbill, podoboo, pokey.
 
+${blocoIds}
+
 Responda SOMENTE neste formato JSON exato:
 {
+  "chao_id": <ID real do chão, ou null>,
+  "borda_id": <ID real de bloco duro pra borda do mapa (temas underground/castle), ou null>,
+  "cano_id": <ID real de corpo de cano, ou null>,
+  "cano_topo_id": <ID real de topo de cano, ou null>,
+  "bandeira_poste_id": <ID real de poste de bandeira, ou null>,
+  "bandeira_id": <ID real de bandeira, ou null>,
   "buracos": [{"x": <int>, "largura": <int 1-6>}],
-  "estruturas": [{"tipo": "pipe|platform|brick|qblock|noteblock", "x": <int>, "y_offset": <int 1-6>, "largura": <int 1-6>}],
-  "inimigos": [{"tipo": "<um dos inimigos permitidos>", "x": <int>}],
-  "itens": [{"tipo": "<um dos itens permitidos>", "x": <int>, "y_offset": <int 1-6>}]
+  "estruturas": [{"tipo": "pipe|platform|brick|qblock|noteblock", "x": <int>, "y_offset": <int 1-6>, "largura": <int 1-6>, "id": <ID real ou null>}],
+  "inimigos": [{"tipo": "<um dos inimigos permitidos>", "x": <int>, "id": <ID real ou null>}],
+  "itens": [{"tipo": "<um dos itens permitidos>", "x": <int>, "y_offset": <int 1-6>, "id": <ID real ou null>}]
 }
 
 Regras:
@@ -927,6 +950,7 @@ Regras:
 - Gere estruturas e itens distribuídos ao longo de toda a largura útil, não só no começo.
 - Não repita o mesmo "x" em itens diferentes.
 - Responda de forma compacta: JSON sem espaços/indentação desnecessários.`;
+
 
   const userPrompt =
 `Gere o layout de uma fase com:
@@ -965,12 +989,19 @@ function aplicarDesignIA(design, ctx){
   const {tema, yG, xUtil} = ctx;
   // Obs: o grid já foi recriado em gerarComGroq() antes de montar o prompt,
   // para garantir que largura/altura batam com o que foi enviado à IA.
+  mapaIdsOverride = {};
+
+  const idValido = id => id && bancoObjetos[id];
+  const marcar = (x,y,id) => { if(idValido(id)) mapaIdsOverride[y+","+x]=id; };
 
   // Chão base
-  for(let x=0;x<largura;x++) mapa[yG][x]="ground";
+  for(let x=0;x<largura;x++){ mapa[yG][x]="ground"; marcar(x,yG,design.chao_id); }
   if(tema==="underground"||tema==="castle"){
-    for(let x=0;x<largura;x++) mapa[0][x]="hardblock";
-    for(let y=0;y<altura;y++){mapa[y][0]="hardblock";mapa[y][largura-1]="hardblock";}
+    for(let x=0;x<largura;x++){ mapa[0][x]="hardblock"; marcar(x,0,design.borda_id); }
+    for(let y=0;y<altura;y++){
+      mapa[y][0]="hardblock"; marcar(0,y,design.borda_id);
+      mapa[y][largura-1]="hardblock"; marcar(largura-1,y,design.borda_id);
+    }
   }
 
   const clampX = x => Math.max(6, Math.min(xUtil, Math.round(x)));
@@ -982,7 +1013,7 @@ function aplicarDesignIA(design, ctx){
     const larg = Math.max(1, Math.min(6, Math.round(b.largura||2)));
     for(let i=0;i<larg;i++){
       const x = x0+i;
-      if(x>0 && x<largura-6) mapa[yG][x]=0;
+      if(x>0 && x<largura-6){ mapa[yG][x]=0; delete mapaIdsOverride[yG+","+x]; }
     }
   });
 
@@ -995,11 +1026,13 @@ function aplicarDesignIA(design, ctx){
     if(y<1) return;
     if(s.tipo==="pipe"){
       if(mapa[yG][x]!=="ground") return;
-      mapa[yG-1][x]="pipe"; if(yG-2>0) mapa[yG-2][x]="pipe"; if(yG-3>0) mapa[yG-3][x]="pipe_top";
+      mapa[yG-1][x]="pipe"; marcar(x,yG-1,s.id||design.cano_id);
+      if(yG-2>0){ mapa[yG-2][x]="pipe"; marcar(x,yG-2,s.id||design.cano_id); }
+      if(yG-3>0){ mapa[yG-3][x]="pipe_top"; marcar(x,yG-3,design.cano_topo_id||s.id); }
     } else if(s.tipo==="platform"){
-      for(let i=0;i<larg;i++){ if(x+i<largura-5) mapa[y][x+i]="platform"; }
+      for(let i=0;i<larg;i++){ if(x+i<largura-5){ mapa[y][x+i]="platform"; marcar(x+i,y,s.id); } }
     } else if(["brick","qblock","noteblock"].includes(s.tipo)){
-      for(let i=0;i<larg;i++){ if(x+i<largura-5) mapa[y][x+i]=s.tipo; }
+      for(let i=0;i<larg;i++){ if(x+i<largura-5){ mapa[y][x+i]=s.tipo; marcar(x+i,y,s.id); } }
     }
   });
 
@@ -1007,7 +1040,7 @@ function aplicarDesignIA(design, ctx){
   (design.inimigos||[]).forEach(en=>{
     if(!GROQ_TILES_PERMITIDOS.includes(en.tipo)) return;
     const x = clampX(en.x);
-    if(mapa[yG][x]==="ground" && mapa[yG-1][x]===0) mapa[yG-1][x]=en.tipo;
+    if(mapa[yG][x]==="ground" && mapa[yG-1][x]===0){ mapa[yG-1][x]=en.tipo; marcar(x,yG-1,en.id); }
   });
 
   // Itens
@@ -1016,16 +1049,16 @@ function aplicarDesignIA(design, ctx){
     const x = clampX(it.x);
     const off = clampOff(it.y_offset||2);
     const y = yG-off;
-    if(y>0 && mapa[y][x]===0) mapa[y][x]=it.tipo;
+    if(y>0 && mapa[y][x]===0){ mapa[y][x]=it.tipo; marcar(x,y,it.id); }
   });
 
   // Bandeira final
   const flagX=largura-4;
-  for(let fy=0;fy<altura;fy++) mapa[fy][flagX]=0;
-  mapa[yG][flagX]="hardblock";
+  for(let fy=0;fy<altura;fy++){ mapa[fy][flagX]=0; delete mapaIdsOverride[fy+","+flagX]; }
+  mapa[yG][flagX]="hardblock"; marcar(flagX,yG,design.borda_id);
   const poleH=Math.min(7,yG-1);
-  for(let i=1;i<=poleH;i++) mapa[yG-i][flagX]="flagpole";
-  if(yG-poleH-1>=0) mapa[yG-poleH-1][flagX]="flag";
+  for(let i=1;i<=poleH;i++){ mapa[yG-i][flagX]="flagpole"; marcar(flagX,yG-i,design.bandeira_poste_id); }
+  if(yG-poleH-1>=0){ mapa[yG-poleH-1][flagX]="flag"; marcar(flagX,yG-poleH-1,design.bandeira_id); }
 
   render();
   const ok = simularIA();
@@ -1237,44 +1270,22 @@ async function reconstruirBancoDeTodasAsBases(){
   const ids=Object.keys(bancoObjetos);
   log(`Banco combinado: ${ids.length} tipos de ID, ${totalObj} instâncias no total de ${basesCarregadas.length} base(s).`,"ok");
   log(`IDs: ${ids.slice(0,20).join(", ")}${ids.length>20?"...":""}`);
+  log(`💡 Ao gerar uma fase com "🧠 Gerar Fase", a própria IA vai ler esses IDs e escolher diretamente quais usar — não depende mais de um mapeamento automático prévio.`);
 
+  // Mapeamento local (regex) fica só como reserva pra pintura manual no pincel
+  // e pro botão "🗂️ Mapear IDs" — a geração via IA agora escolhe os IDs direto.
   mapeamentoManual={};
   const naoEncontrados=[];
   const todosTiles=Object.keys(TILES).filter(t=>t!=="erase");
-
-  const temChaveGroq = !!((localStorage.getItem("smmwe_groq_api_key")||"").trim() || (document.getElementById("groqApiKey")?.value||"").trim());
-  let usouIA=false;
-
-  if(temChaveGroq && ids.length>0){
-    try{
-      log("🧠 Pedindo pra IA (Groq) mapear os tipos de tile pros IDs reais do template...","warn");
-      const mapaIA = await mapearIDsComGroq(ids);
-      for(const tipo of todosTiles){
-        const val = mapaIA ? mapaIA[tipo] : null;
-        if(val && bancoObjetos[val]) mapeamentoManual[tipo]=val;
-        else naoEncontrados.push(tipo);
-      }
-      usouIA = true;
-      log("✅ Mapeamento feito pela IA (Groq).","ok");
-    }catch(e){
-      log("⚠️ Falha no mapeamento pela IA ("+e.message+"). Usando mapeamento automático local como fallback.","err");
-    }
-  }
-
-  if(!usouIA){
-    naoEncontrados.length = 0;
-    for(const tipo of todosTiles){
-      const id=resolverIDInterno(tipo,ids);
-      if(id) mapeamentoManual[tipo]=id;
-      else naoEncontrados.push(tipo);
-    }
+  for(const tipo of todosTiles){
+    const id=resolverIDInterno(tipo,ids);
+    if(id) mapeamentoManual[tipo]=id;
+    else naoEncontrados.push(tipo);
   }
 
   if(naoEncontrados.length>0){
-    log(`⚠️ Sem ID automático: ${naoEncontrados.join(", ")}`,"warn");
-    log(`Use "🗂️ Mapear IDs" para associar manualmente.`,"warn");
-  } else {
-    log(`✅ Todos os ${todosTiles.length} tiles mapeados automaticamente!`,"ok");
+    log(`⚠️ Sem ID automático (pincel manual): ${naoEncontrados.join(", ")}`,"warn");
+    log(`Use "🗂️ Mapear IDs" pra associar manualmente, se for pintar esses tiles à mão.`,"warn");
   }
 }
 
@@ -1377,7 +1388,8 @@ function gerarLevel(){
   const naoEncontrados=new Set();
   for(let y=0;y<mapa.length;y++) for(let x=0;x<mapa[y].length;x++){
     const t=mapa[y][x];if(t===0)continue;
-    const id=resolverID(t);
+    const idForcado = mapaIdsOverride[y+","+x];
+    const id = (idForcado && bancoObjetos[idForcado]) ? idForcado : resolverID(t);
     if(id){const obj=clonarObjeto(id,x*TILE,y*TILE);if(obj)level.S0.S4.push(obj);}
     else naoEncontrados.add(t);
   }
