@@ -157,7 +157,7 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
       <input type="range" id="zoom" min="1" max="4" step="0.5" value="2" oninput="aplicarZoom()">
     </div>
 
-    <div class="s-title">🤖 Gerador IA</div>
+    <div class="s-title">🧠 Gerador de Fases (IA)</div>
     <div class="s-body">
       <label>Dificuldade</label>
       <select id="dificuldade">
@@ -177,21 +177,17 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
       <input type="range" id="cfgInimigos" min="0" max="100" value="30" oninput="document.getElementById('inimLabel').textContent=this.value+'%'">
       <label>Buracos <span id="buraLabel">20%</span></label>
       <input type="range" id="cfgBuracos" min="0" max="100" value="20" oninput="document.getElementById('buraLabel').textContent=this.value+'%'">
-      <button class="btn green" id="btnGerar" onclick="gerarIA()">⚡ Gerar (Procedural)</button>
-      <button class="btn yellow" onclick="melhorarIA()">✨ Melhorar Fase</button>
-      <button class="btn" onclick="simularIA()">🤖 Simular Caminho</button>
-      <button class="btn red" onclick="limparMapa()">🗑️ Limpar</button>
-    </div>
-
-    <div class="s-title">🧠 IA Real (Groq)</div>
-    <div class="s-body">
       <label>Instruções extras (opcional)</label>
       <input type="text" id="groqPrompt" placeholder="Ex: fase temática de deserto com muitos canos">
       <div class="btn-row">
-        <button class="btn green" id="btnGerarGroq" onclick="gerarComGroq()">🧠 Gerar com Groq</button>
+        <button class="btn green" id="btnGerarGroq" onclick="gerarComGroq()">🧠 Gerar Fase</button>
         <button class="btn" style="flex:0 0 34px;" onclick="abrirModalGroq()" title="Configurar API">⚙️</button>
       </div>
-      <span class="badge" id="groqStatus" style="display:block;margin-top:4px;text-align:center;">⭘ Groq não configurado</span>
+      <span class="badge" id="groqStatus" style="display:block;margin:4px 0;text-align:center;">⭘ Groq não configurado</span>
+      <button class="btn green" id="btnGerar" onclick="gerarIA()" style="display:none">⚡ Gerar (Procedural)</button>
+      <button class="btn yellow" onclick="melhorarIA()">✨ Melhorar Fase</button>
+      <button class="btn" onclick="simularIA()">🤖 Simular Caminho</button>
+      <button class="btn red" onclick="limparMapa()">🗑️ Limpar</button>
     </div>
 
     <div class="s-title">🖊️ Pincel</div>
@@ -269,11 +265,23 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
       <input type="text" id="groqApiKey" placeholder="gsk_...">
       <label>Modelo</label>
       <select id="groqModel">
-        <option value="llama-3.3-70b-versatile" selected>llama-3.3-70b-versatile</option>
-        <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (mais rápido)</option>
-        <option value="openai/gpt-oss-120b">openai/gpt-oss-120b</option>
-        <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (mais rápido)</option>
+        <optgroup label="🟢 Produção (recomendados)">
+          <option value="openai/gpt-oss-120b" selected>openai/gpt-oss-120b — mais inteligente</option>
+          <option value="openai/gpt-oss-20b">openai/gpt-oss-20b — mais rápido</option>
+        </optgroup>
+        <optgroup label="🟡 Produção (saindo do ar em 16/08/2026)">
+          <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+          <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (mais rápido)</option>
+        </optgroup>
+        <optgroup label="🔵 Preview (experimentais)">
+          <option value="qwen/qwen3.6-27b">qwen/qwen3.6-27b — raciocínio forte</option>
+        </optgroup>
+        <optgroup label="🟣 Sistemas agentic (com busca na web)">
+          <option value="groq/compound">groq/compound</option>
+          <option value="groq/compound-mini">groq/compound-mini — mais rápido</option>
+        </optgroup>
       </select>
+      <div style="font-size:8px;color:var(--dim);margin-top:3px;">💡 Modelos marcados em amarelo ainda funcionam, mas a Groq vai desligá-los em 16/08/2026.</div>
       <div id="groqTestResult" style="font-size:9px;margin-top:6px;min-height:14px;"></div>
     </div>
     <div id="groqModalFooter">
@@ -803,7 +811,7 @@ async function chamarGroq(systemPrompt, userPrompt, apiKey, model, maxTokens){
       "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: model || "llama-3.3-70b-versatile",
+      model: model || "openai/gpt-oss-120b",
       temperature: 1,
       max_tokens: maxTokens || 2500,
       messages: [
@@ -1106,10 +1114,10 @@ function renderBasesLista(){
   ).join("<br>");
 }
 
-function removerBase(idx){
+async function removerBase(idx){
   basesCarregadas.splice(idx,1);
   template = basesCarregadas.length>0 ? basesCarregadas[0].template : null;
-  reconstruirBancoDeTodasAsBases();
+  await reconstruirBancoDeTodasAsBases();
   renderBasesLista();
   if(basesCarregadas.length===0){
     document.getElementById("templateStatus").className="badge err";
@@ -1169,7 +1177,7 @@ async function carregarTemplate(){
   }
 
   if(sucesso>0){
-    reconstruirBancoDeTodasAsBases();
+    await reconstruirBancoDeTodasAsBases();
     renderBasesLista();
     document.getElementById("templateStatus").className="badge ok";
     document.getElementById("templateStatus").textContent=`✅ ${basesCarregadas.length} base(s) ok`;
@@ -1183,7 +1191,38 @@ async function carregarTemplate(){
   document.getElementById("templateFile").value = ""; // permite reselecionar o mesmo arquivo depois
 }
 
-function reconstruirBancoDeTodasAsBases(){
+async function mapearIDsComGroq(idsReais){
+  const key = (localStorage.getItem("smmwe_groq_api_key")||"").trim() || (document.getElementById("groqApiKey")?.value||"").trim();
+  if(!key) return null;
+  const model = (localStorage.getItem("smmwe_groq_model")||"").trim() || document.getElementById("groqModel")?.value || "openai/gpt-oss-120b";
+
+  const tiposInfo = Object.keys(TILES).filter(t=>t!=="erase").map(t=>{
+    const info = TILES[t];
+    return { tipo:t, nome: info.label||t, dicas: info.ids||[] };
+  });
+
+  const system =
+`Você é um especialista em editores de fases estilo Super Mario Maker. Vai receber uma lista de IDs REAIS de objetos extraídos de um template .swe carregado pelo usuário, e uma lista de tipos de tile abstratos (cada um com um nome e dicas de possíveis nomes de ID).
+Sua tarefa é escolher, para cada tipo de tile, o ID real da lista que melhor corresponde a ele.
+Responda APENAS com um JSON no formato {"tipo1":"id_real_escolhido","tipo2":null,...} — um valor por tipo, usando EXATAMENTE um dos IDs da lista de IDs reais fornecida, ou null se não houver nenhum candidato razoável. Não invente IDs que não estejam na lista. Não repita o mesmo ID real para tipos muito diferentes, a menos que realmente não haja outra opção. Sem markdown, sem comentários, sem texto fora do JSON.`;
+
+  const user =
+`IDs reais disponíveis (${idsReais.length}):
+${JSON.stringify(idsReais)}
+
+Tipos de tile para mapear (${tiposInfo.length}):
+${JSON.stringify(tiposInfo)}
+
+Responda só o JSON de mapeamento, em formato compacto.`;
+
+  const maxTok = Math.max(1500, Math.min(4000, 400 + tiposInfo.length*25));
+  const texto = await chamarGroq(system, user, key, model, maxTok);
+  const obj = extrairJSON(texto);
+  if(!obj) throw new Error("Resposta de mapeamento não veio em JSON válido.");
+  return obj;
+}
+
+async function reconstruirBancoDeTodasAsBases(){
   bancoObjetos={};
   let totalObj=0;
   for(const base of basesCarregadas){
@@ -1199,15 +1238,38 @@ function reconstruirBancoDeTodasAsBases(){
   log(`Banco combinado: ${ids.length} tipos de ID, ${totalObj} instâncias no total de ${basesCarregadas.length} base(s).`,"ok");
   log(`IDs: ${ids.slice(0,20).join(", ")}${ids.length>20?"...":""}`);
 
-  // Auto-mapear todos os tiles usando o banco combinado (mais bases = mais chance de acerto)
   mapeamentoManual={};
   const naoEncontrados=[];
   const todosTiles=Object.keys(TILES).filter(t=>t!=="erase");
-  for(const tipo of todosTiles){
-    const id=resolverIDInterno(tipo,ids);
-    if(id) mapeamentoManual[tipo]=id;
-    else naoEncontrados.push(tipo);
+
+  const temChaveGroq = !!((localStorage.getItem("smmwe_groq_api_key")||"").trim() || (document.getElementById("groqApiKey")?.value||"").trim());
+  let usouIA=false;
+
+  if(temChaveGroq && ids.length>0){
+    try{
+      log("🧠 Pedindo pra IA (Groq) mapear os tipos de tile pros IDs reais do template...","warn");
+      const mapaIA = await mapearIDsComGroq(ids);
+      for(const tipo of todosTiles){
+        const val = mapaIA ? mapaIA[tipo] : null;
+        if(val && bancoObjetos[val]) mapeamentoManual[tipo]=val;
+        else naoEncontrados.push(tipo);
+      }
+      usouIA = true;
+      log("✅ Mapeamento feito pela IA (Groq).","ok");
+    }catch(e){
+      log("⚠️ Falha no mapeamento pela IA ("+e.message+"). Usando mapeamento automático local como fallback.","err");
+    }
   }
+
+  if(!usouIA){
+    naoEncontrados.length = 0;
+    for(const tipo of todosTiles){
+      const id=resolverIDInterno(tipo,ids);
+      if(id) mapeamentoManual[tipo]=id;
+      else naoEncontrados.push(tipo);
+    }
+  }
+
   if(naoEncontrados.length>0){
     log(`⚠️ Sem ID automático: ${naoEncontrados.join(", ")}`,"warn");
     log(`Use "🗂️ Mapear IDs" para associar manualmente.`,"warn");
