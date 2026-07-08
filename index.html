@@ -118,9 +118,10 @@ hr{border:none;border-top:1px solid var(--border);margin:5px 0;}
 
     <div class="s-title">📁 Arquivo</div>
     <div class="s-body">
-      <label>Template .swe</label>
-      <input type="file" id="templateFile" accept=".swe">
-      <button class="btn" onclick="carregarTemplate()">📂 Carregar Template</button>
+      <label>Bases .swe <span style="color:var(--dim)">(pode escolher várias, ou adicionar mais depois)</span></label>
+      <input type="file" id="templateFile" accept=".swe" multiple>
+      <button class="btn" onclick="carregarTemplate()">📂 Carregar/Adicionar Base(s)</button>
+      <div id="basesLista" style="font-size:9px;color:var(--dim);margin:4px 0;line-height:1.6;"></div>
       <button class="btn yellow" id="btnMapIds" style="display:none" onclick="abrirModal()">🗂️ Mapear IDs</button>
       <hr>
       <label>Nome da Fase</label>
@@ -794,7 +795,7 @@ function atualizarStatusGroqInicial(){
   if(key) groqStatus("⭘ Groq configurado (pronto)","ok");
   else groqStatus("⭘ Groq não configurado","");
 }
-async function chamarGroq(systemPrompt, userPrompt, apiKey, model){
+async function chamarGroq(systemPrompt, userPrompt, apiKey, model, maxTokens){
   const resp = await fetch(GROQ_API_URL, {
     method: "POST",
     headers: {
@@ -804,7 +805,7 @@ async function chamarGroq(systemPrompt, userPrompt, apiKey, model){
     body: JSON.stringify({
       model: model || "llama-3.3-70b-versatile",
       temperature: 1,
-      max_tokens: 8192,
+      max_tokens: maxTokens || 2500,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -825,7 +826,7 @@ async function testarConexaoGroq(){
   out.textContent = "⏳ Testando...";
   out.style.color = "var(--dim)";
   try{
-    const texto = await chamarGroq("", "Responda apenas: ok", key, model);
+    const texto = await chamarGroq("", "Responda apenas: ok", key, model, 20);
     out.textContent = "✅ Conectado! Resposta: " + texto.slice(0,60);
     out.style.color = "var(--accent3)";
   }catch(e){
@@ -884,6 +885,14 @@ async function gerarComGroq(){
   const extra  = document.getElementById("groqPrompt").value.trim();
   const yG = tema==="sky" ? Math.floor(altura*0.8) : altura-4;
   const xUtil = largura - 12; // deixa margem inicial e final (spawn/bandeira)
+  const limiteBuracos = Math.max(3, Math.min(10, Math.round(xUtil/14)));
+  const limiteEstruturas = Math.max(4, Math.min(14, Math.round(xUtil/10)));
+  const limiteInimigos   = Math.max(4, Math.min(16, Math.round(xUtil/8)));
+  const limiteItens      = Math.max(4, Math.min(16, Math.round(xUtil/8)));
+  // Cada item do JSON gasta ~15-20 tokens; deixamos folga e um teto seguro
+  // pra não estourar o limite de tokens por minuto (TPM) da Groq.
+  const itensEstimados = limiteBuracos+limiteEstruturas+limiteInimigos+limiteItens;
+  const maxTokensGeracao = Math.max(1200, Math.min(4000, 400 + itensEstimados*22));
 
   const systemPrompt =
 `Você é um designer de fases de Super Mario Maker. Sua tarefa é planejar o LAYOUT de uma fase e responder APENAS com um JSON válido, sem markdown, sem comentários, sem texto antes ou depois.
@@ -905,9 +914,11 @@ Responda SOMENTE neste formato JSON exato:
 Regras:
 - "x" sempre entre 6 e ${xUtil}.
 - "y_offset" é quantos blocos ACIMA do chão (y_offset=1 é logo acima do chão).
-- Gere entre 3 e ${Math.max(4,Math.round(xUtil/12))} buracos, cada um com largura proporcional à dificuldade (mais largos = mais difícil).
+- Gere entre 3 e ${limiteBuracos} buracos, cada um com largura proporcional à dificuldade (mais largos = mais difícil).
+- Gere no máximo ${limiteEstruturas} estruturas, ${limiteInimigos} inimigos e ${limiteItens} itens no total. Seja econômico, não gere mais que isso.
 - Gere estruturas e itens distribuídos ao longo de toda a largura útil, não só no começo.
-- Não repita o mesmo "x" em itens diferentes.`;
+- Não repita o mesmo "x" em itens diferentes.
+- Responda de forma compacta: JSON sem espaços/indentação desnecessários.`;
 
   const userPrompt =
 `Gere o layout de uma fase com:
@@ -921,12 +932,17 @@ Responda apenas o JSON.`;
 
   let design = null;
   try{
-    const texto = await chamarGroq(systemPrompt, userPrompt, apiKey, model);
+    const texto = await chamarGroq(systemPrompt, userPrompt, apiKey, model, maxTokensGeracao);
     design = extrairJSON(texto);
     if(!design) throw new Error("Resposta da IA não veio em JSON válido.");
   }catch(e){
     groqStatus("❌ Falha na Groq","err");
-    log("Erro ao consultar a IA: "+e.message+" — usando geração procedural como fallback.","err");
+    const msgLower = (e.message||"").toLowerCase();
+    if(msgLower.includes("tokens per minute")||msgLower.includes("rate limit")||msgLower.includes("tpm")){
+      log("⏳ Limite de uso da Groq atingido (tokens por minuto). Aguarde ~1 minuto e tente de novo, ou troque pra um modelo menor em ⚙️ (ex: llama-3.1-8b-instant / gpt-oss-20b). Usando geração procedural como fallback.","err");
+    } else {
+      log("Erro ao consultar a IA: "+e.message+" — usando geração procedural como fallback.","err");
+    }
     btn.disabled = false;
     gerarIA();
     return;
@@ -1080,70 +1096,110 @@ function limparMapa(){if(!confirm("Limpar?"))return;salvarHistorico();mapa=Array
 // ============================================================
 // TEMPLATE & BANCO — com resolução inteligente de IDs
 // ============================================================
-function carregarTemplate(){
-  const f=document.getElementById("templateFile").files[0];
-  if(!f){log("Nenhum arquivo selecionado.","err");return;}
-  const r=new FileReader();
-  r.onload=e=>{
-    try{
-      const rawOriginal = e.target.result;
-      // Remove espaços/quebras de linha nas pontas (alguns editores/downloads adicionam)
-      const raw = rawOriginal.replace(/^\uFEFF/, "").trim();
-      if(raw.length<=40){
-        throw new Error("Arquivo muito curto ou vazio para ser um .swe válido.");
-      }
-      let base64 = raw.slice(0,-40);
-      // Remove qualquer espaço/quebra de linha que tenha ficado no meio do base64
-      base64 = base64.replace(/\s+/g,"");
-      // Compatibiliza com base64 "URL-safe" (- e _) caso o arquivo tenha vindo assim
-      base64 = base64.replace(/-/g,"+").replace(/_/g,"/");
-      // Corrige o padding (=) caso esteja faltando
-      const resto = base64.length % 4;
-      if(resto===2) base64 += "==";
-      else if(resto===3) base64 += "=";
-      else if(resto===1) throw new Error("Base64 do arquivo parece corrompido (tamanho inválido).");
+let basesCarregadas = []; // {nome, objCount}
 
-      let decodedJson;
-      try{
-        decodedJson = atob(base64);
-      }catch(errAtob){
-        throw new Error("Não foi possível decodificar o conteúdo do arquivo (base64 inválido). Verifique se o arquivo .swe não foi alterado/corrompido.");
-      }
-      template=JSON.parse(decodedJson);
-      extrairBanco();
-      document.getElementById("templateStatus").className="badge ok";
-      document.getElementById("templateStatus").textContent="✅ Template ok";
-      document.getElementById("btnMapIds").style.display="block";
-      log(`Template carregado: ${f.name}`,"ok");
-      toast("Template carregado!");
-    }catch(err){
-      log("Erro ao carregar template: "+err.message,"err");
-      document.getElementById("templateStatus").className="badge err";
-      document.getElementById("templateStatus").textContent="❌ Erro";
-    }
-  };
-  r.onerror=()=>{
-    log("Erro ao ler o arquivo: "+(r.error?.message||"desconhecido"),"err");
-    document.getElementById("templateStatus").className="badge err";
-    document.getElementById("templateStatus").textContent="❌ Erro";
-  };
-  r.readAsText(f);
+function renderBasesLista(){
+  const el = document.getElementById("basesLista");
+  if(basesCarregadas.length===0){ el.innerHTML=""; return; }
+  el.innerHTML = basesCarregadas.map((b,i)=>
+    `${i+1}. ${b.nome} — ${b.objCount} objetos <span style="color:var(--accent);cursor:pointer" onclick="removerBase(${i})">✕</span>`
+  ).join("<br>");
 }
 
-function extrairBanco(){
+function removerBase(idx){
+  basesCarregadas.splice(idx,1);
+  template = basesCarregadas.length>0 ? basesCarregadas[0].template : null;
+  reconstruirBancoDeTodasAsBases();
+  renderBasesLista();
+  if(basesCarregadas.length===0){
+    document.getElementById("templateStatus").className="badge err";
+    document.getElementById("templateStatus").textContent="❌ Sem template";
+    document.getElementById("btnMapIds").style.display="none";
+  } else {
+    document.getElementById("templateStatus").textContent=`✅ ${basesCarregadas.length} base(s) ok`;
+  }
+  toast("Base removida.");
+}
+
+function decodificarSwe(rawOriginal){
+  const raw = rawOriginal.replace(/^\uFEFF/, "").trim();
+  if(raw.length<=40){
+    throw new Error("Arquivo muito curto ou vazio para ser um .swe válido.");
+  }
+  let base64 = raw.slice(0,-40);
+  base64 = base64.replace(/\s+/g,"");
+  base64 = base64.replace(/-/g,"+").replace(/_/g,"/");
+  const resto = base64.length % 4;
+  if(resto===2) base64 += "==";
+  else if(resto===3) base64 += "=";
+  else if(resto===1) throw new Error("Base64 do arquivo parece corrompido (tamanho inválido).");
+  let decodedJson;
+  try{ decodedJson = atob(base64); }
+  catch(errAtob){ throw new Error("Não foi possível decodificar o conteúdo do arquivo (base64 inválido). Verifique se o arquivo .swe não foi alterado/corrompido."); }
+  return JSON.parse(decodedJson);
+}
+
+function lerArquivoComoTexto(f){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=e=>resolve(e.target.result);
+    r.onerror=()=>reject(r.error||new Error("erro desconhecido"));
+    r.readAsText(f);
+  });
+}
+
+async function carregarTemplate(){
+  const files=Array.from(document.getElementById("templateFile").files||[]);
+  if(files.length===0){log("Nenhum arquivo selecionado.","err");return;}
+
+  let sucesso=0, falhas=0;
+  for(const f of files){
+    try{
+      const rawOriginal = await lerArquivoComoTexto(f);
+      const parsed = decodificarSwe(rawOriginal);
+      if(!parsed?.S0?.S4){ throw new Error("Arquivo não tem a estrutura S0.S4 esperada."); }
+      if(!template) template = parsed; // primeira base carregada vira o "esqueleto" usado na exportação
+      basesCarregadas.push({ nome: f.name, objCount: parsed.S0.S4.length, template: parsed });
+      sucesso++;
+      log(`Base carregada: ${f.name} (${parsed.S0.S4.length} objetos)`,"ok");
+    }catch(err){
+      falhas++;
+      log(`Erro ao carregar "${f.name}": `+err.message,"err");
+    }
+  }
+
+  if(sucesso>0){
+    reconstruirBancoDeTodasAsBases();
+    renderBasesLista();
+    document.getElementById("templateStatus").className="badge ok";
+    document.getElementById("templateStatus").textContent=`✅ ${basesCarregadas.length} base(s) ok`;
+    document.getElementById("btnMapIds").style.display="block";
+    toast(sucesso>1 ? `${sucesso} bases carregadas!` : "Base carregada!");
+  }
+  if(falhas>0 && sucesso===0){
+    document.getElementById("templateStatus").className="badge err";
+    document.getElementById("templateStatus").textContent="❌ Erro";
+  }
+  document.getElementById("templateFile").value = ""; // permite reselecionar o mesmo arquivo depois
+}
+
+function reconstruirBancoDeTodasAsBases(){
   bancoObjetos={};
-  if(!template?.S0?.S4){log("Template sem S0.S4","err");return;}
-  for(const obj of template.S0.S4){
-    if(obj.ID){
-      if(!bancoObjetos[obj.ID])bancoObjetos[obj.ID]=[];
-      bancoObjetos[obj.ID].push(obj);
+  let totalObj=0;
+  for(const base of basesCarregadas){
+    for(const obj of base.template.S0.S4){
+      if(obj.ID){
+        if(!bancoObjetos[obj.ID]) bancoObjetos[obj.ID]=[];
+        bancoObjetos[obj.ID].push(obj);
+        totalObj++;
+      }
     }
   }
   const ids=Object.keys(bancoObjetos);
-  log(`Banco: ${ids.length} tipos, ${template.S0.S4.length} instâncias.`,"ok");
+  log(`Banco combinado: ${ids.length} tipos de ID, ${totalObj} instâncias no total de ${basesCarregadas.length} base(s).`,"ok");
   log(`IDs: ${ids.slice(0,20).join(", ")}${ids.length>20?"...":""}`);
 
-  // Auto-mapear todos os tiles
+  // Auto-mapear todos os tiles usando o banco combinado (mais bases = mais chance de acerto)
   mapeamentoManual={};
   const naoEncontrados=[];
   const todosTiles=Object.keys(TILES).filter(t=>t!=="erase");
@@ -1159,6 +1215,12 @@ function extrairBanco(){
     log(`✅ Todos os ${todosTiles.length} tiles mapeados automaticamente!`,"ok");
   }
 }
+
+function extrairBanco(){
+  // Mantido por compatibilidade: recalcula o banco a partir de basesCarregadas.
+  reconstruirBancoDeTodasAsBases();
+}
+
 
 function resolverIDInterno(tipo,ids){
   const info=TILES[tipo];
@@ -1309,10 +1371,11 @@ function importarJSON(){
 }
 function resetarTudo(){
   if(!confirm("Resetar tudo?"))return;
-  template=null;bancoObjetos={};mapeamentoManual={};
+  template=null;bancoObjetos={};mapeamentoManual={};basesCarregadas=[];
   document.getElementById("templateStatus").className="badge err";
   document.getElementById("templateStatus").textContent="❌ Sem template";
   document.getElementById("btnMapIds").style.display="none";
+  renderBasesLista();
   historico=[];historicoIdx=-1;caminhoIA=[];
   criarGrid();log("Reset total.","warn");toast("Resetado!");
 }
